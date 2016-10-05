@@ -23,20 +23,31 @@ dir_prd <- switch(Sys.info()[["sysname"]],
                   "Linux" = "/media/fdetsch/XChange/RapidEye/", 
                   "Windows" = "D:/RapidEye/")
 
-fls_ctn <- list.files(dir_prd, pattern = "^getProduct.*streaming=True$", 
-                      full.names = TRUE)
+# fls_ctn <- list.files(dir_prd, pattern = "^getProduct.*streaming=True$", 
+#                       full.names = TRUE)
+# 
+# ## loop over containers and extract required files
+# lst <- foreach(i = fls_ctn) %dopar% {
+#   tfs <- unzip(i, list = TRUE)$Name
+#   
+#   fls <- paste0(dir_prd, tfs)
+#   if (any(!file.exists(fls))) {
+#     ord <- unique(getOrder(tfs))
+#     ids <- sapply(paste0(c(ord, "udm"), ".tif$"), function(j) grep(j, tfs))
+#     tfs <- tfs[ids]
+#     
+#     unzip(i, files = tfs, exdir = dirname(i))
+#   }
+#   
+#   return(fls)
+# }
 
-## loop over containers and extract required files
-lst <- foreach(i = fls_ctn) %dopar% {
-  tfs <- unzip(i, list = TRUE)$Name
-  
-  ord <- unique(getOrder(tfs))
-  ids <- sapply(paste0(c(ord, "udm"), ".tif$"), function(j) grep(j, tfs))
-  tfs <- tfs[ids]
-  
-  unzip(i, files = tfs, exdir = dirname(i))
-  paste0(dir_prd, tfs)
-}
+## re-list extracted files
+drs <- dir(dir_prd, pattern = "_3A_", full.names = TRUE)
+
+lst <- lapply(drs, function(i) {
+  list.files(i, pattern = ".tif$", full.names = TRUE)
+})
   
 
 ### quality control -----
@@ -68,62 +79,3 @@ lst_qc <- foreach(i = lst, j = as.list(fls_qc), .packages = "raster") %dopar% {
     }, filename = j, format = "GTiff", overwrite = TRUE)
   }
 }
-
-  ## crop images
-  rst_crp <- foreach(i = c("NDVI", "pixel_reliability", "VI_Quality"), 
-                     .packages = lib, .export = ls(envir = globalenv())) %dopar% {                                      
-                       
-                       # list and import available files
-                       fls <- list.files(paste0(getOption("MODIS_outDirPath"), "/", product, ".006"),
-                                         pattern = paste0(i, ".tif$"), full.names = TRUE)
-                       rst <- raster::stack(fls)
-                       
-                       # crop
-                       dir_out <- paste0(dir_prd, "/crp")
-                       if (!dir.exists(dir_out)) dir.create(dir_out)
-                       
-                       fls_out <- paste0(dir_out, "/", basename(fls))
-                       
-                       lst_out <- lapply(1:(raster::nlayers(rst)), function(j) {
-                         if (file.exists(fls_out[j])) {
-                           raster::raster(fls_out[j])
-                         } else {
-                           rst_out <- raster::crop(rst[[j]], ext, snap = "out")
-                           
-                           # apply scale factor
-                           if (i %in% c("NDVI", "EVI"))
-                             rst_out <- rst_out * 0.0001
-                           
-                           # save and return cropped layers
-                           raster::writeRaster(rst_out, filename = fls_out[j],
-                                               format = "GTiff", overwrite = TRUE)
-                         }
-                       })
-                       
-                       raster::stack(lst_out)
-                     }
-  
-  
-  ### quality control, step #1: -----
-  ### discard clouds, snow/ice and filled pixels using 'pixel_reliability'
-  
-  dir_qc1 <- paste0(dir_prd, "/qc1")
-  if (!dir.exists(dir_qc1)) dir.create(dir_qc1)
-  
-  ## perform quality check #1 for both NDVI and EVI
-  fls_qc1 <- paste0(dir_qc1, "/", names(rst_crp[[1]]), ".tif")
-  
-  lst_qc1 <- foreach(i = 1:nlayers(rst_crp[[1]]), .packages = lib, 
-                     .export = ls(envir = globalenv())) %dopar% {
-                       if (file.exists(fls_qc1[i])) {
-                         raster(fls_qc1[i])
-                       } else {
-                         overlay(rst_crp[[1]][[i]], rst_crp[[2]][[i]], fun = function(x, y) {
-                           x[!y[] %in% c(0, 1)] <- NA
-                           return(x)
-                         }, filename = fls_qc1[i], overwrite = TRUE, format = "GTiff")
-                       }
-                     }
-  
-  rst_qc1 <- stack(lst_qc1); rm(lst_qc1)
-  
