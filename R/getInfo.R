@@ -24,9 +24,14 @@ getTileID <- function(x) {
   sapply(x, "[[", 1)
 }
 
-getAcquisitionDate <- function(x) {
+getAcquisitionDate <- function(x, as_date = FALSE) {
   x <- strsplit(basename(x), "_")
-  sapply(x, "[[", 2)
+  dts <- sapply(x, "[[", 2)
+  
+  if (as_date)
+    dts <- as.Date(dts)
+  
+  return(dts)
 }
 
 getSatellite <- function(x) {
