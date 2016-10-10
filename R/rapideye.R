@@ -151,16 +151,19 @@ for (i in 1:length(fls_mds)) {
     if (n == 1) {
       dat <- data.frame(CellID = j, Date = dts_mds[i], File = fls_mds[i], 
                         FileREbefore = fls[which(dft == max(ids_bfr))[1]], 
-                        FileREafter = fls[which(dft == max(ids_bfr))[1]])
+                        FileREafter = fls[which(dft == min(ids_afr))[1]], 
+                        stringsAsFactors = FALSE)
     } else {
       dat <- rbind(dat, data.frame(CellID = j, Date = dts_mds[i], File = fls_mds[i], 
                                    FileREbefore = fls[which(dft == max(ids_bfr))[1]], 
-                                   FileREafter = fls[which(dft == max(ids_bfr))[1]]))
+                                   FileREafter = fls[which(dft == min(ids_afr))[1]], 
+                                   stringsAsFactors = FALSE))
     }
     
     n <- n + 1
   }
 }
 
-write.csv(dat, "data/out/modis_fires__rapideye_files.csv", row.names = FALSE, 
-          quote = FALSE)
+## write to file
+write.csv(dat, "inst/extdata/modis_fires__rapideye_files.csv", 
+          row.names = FALSE, quote = FALSE)
