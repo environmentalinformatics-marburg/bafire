@@ -151,11 +151,11 @@ for (i in 1:length(fls_mds)) {
     if (n == 1) {
       dat <- data.frame(CellID = j, Date = dts_mds[i], File = fls_mds[i], 
                         FileREbefore = fls[which(dft == max(ids_bfr))[1]], 
-                        FileREafter = fls[which(dft == max(ids_bfr))[1]])
+                        FileREafter = fls[which(dft == min(ids_afr))[1]])
     } else {
       dat <- rbind(dat, data.frame(CellID = j, Date = dts_mds[i], File = fls_mds[i], 
                                    FileREbefore = fls[which(dft == max(ids_bfr))[1]], 
-                                   FileREafter = fls[which(dft == max(ids_bfr))[1]]))
+                                   FileREafter = fls[which(dft == min(ids_afr))[1]]))
     }
     
     n <- n + 1
