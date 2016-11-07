@@ -22,7 +22,7 @@ reView <- function(cell, date, dsn_rpd = ".", dsn_mds = ".") {
   spy_mds <- raster::rasterToPolygons(rst_mds)
   
   lst_rpd <- lapply(c("FileREbefore", "FileREafter"), function(i) {
-    rst_rpd <- raster::stack(paste0(dsn_rpd, "/", dat[, i]))[[1:3]]
+    rst_rpd <- raster::stack(paste0(dsn_rpd, "/", dat[, i]))[[2:4]]
     raster::crop(rst_rpd, spy_mds, snap = "out")
   })
 
@@ -31,7 +31,9 @@ reView <- function(cell, date, dsn_rpd = ".", dsn_mds = ".") {
   mapview::slideView(lst_rpd[[1]], lst_rpd[[2]], label1 = lbl1, label2 = lbl2)
 }
 
-# dat <- read.csv("inst/extdata/modis_fires__rapideye_files.csv")
-reView(cell = 2948L, date = "2012-03-12", 
+dat <- read.csv("inst/extdata/modis_fires__rapideye_files.csv")
+lapply(seq(610, 700, 10), function(i) {
+reView(cell = dat$CellID[i], date = dat$Date[i], 
        dsn_rpd = "E:/work/projects/bale/rapideye/data/qc", 
        dsn_mds = "data/MCD14A1.006")
+})
