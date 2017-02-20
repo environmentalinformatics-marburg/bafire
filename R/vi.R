@@ -1,7 +1,8 @@
 library(ESD)
 
 ## modis options
-MODISoptions(MODISserverOrder = c("LAADS", "LPDAAC"), outProj = "32637")
+MODISoptions(MODISserverOrder = c("LAADS", "LPDAAC"), 
+             outProj = "+init=epsg:32637")
 
 ## reference extent
 bmn <- shapefile("inst/extdata/balemountains")
