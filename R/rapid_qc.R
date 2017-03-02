@@ -35,7 +35,7 @@ rapid_qc <- function(x, qa, directions = 8L, ...) {
   if (inherits(qa, "character")) qa <- raster::raster(qa)
 
   ## apply pixel buffer
-  if (directions > 0) {
+  if (inherits(directions, "matrix") | directions[1] > 0) {
     val <- qa[]; ids <- which(val > 0)
     adj <- raster::adjacent(qa, ids, directions, pairs = FALSE)
     adj <- adj[-which(adj %in% ids)]
