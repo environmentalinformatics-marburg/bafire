@@ -12,7 +12,7 @@ jnk <- sapply(lib, function(x) library(x, character.only = TRUE))
 source("R/getInfo.R")
 
 ## parallelization
-cl <- makeCluster(detectCores() - 1)
+cl <- makeCluster(8L)
 registerDoParallel(cl)
 
 
@@ -23,24 +23,17 @@ dir_prd <- switch(Sys.info()[["sysname"]],
                   "Linux" = "/media/fdetsch/XChange/RapidEye/", 
                   "Windows" = "D:/RapidEye/")
 
-# fls_ctn <- list.files(dir_prd, pattern = "^getProduct.*streaming=True$", 
-#                       full.names = TRUE)
-# 
-# ## loop over containers and extract required files
-# lst <- foreach(i = fls_ctn) %dopar% {
-#   tfs <- unzip(i, list = TRUE)$Name
-#   
-#   fls <- paste0(dir_prd, tfs)
-#   if (any(!file.exists(fls))) {
-#     ord <- unique(getOrder(tfs))
-#     ids <- sapply(paste0(c(ord, "udm"), ".tif$"), function(j) grep(j, tfs))
-#     tfs <- tfs[ids]
-#     
-#     unzip(i, files = tfs, exdir = dirname(i))
-#   }
-#   
-#   return(fls)
-# }
+ctn <- list.files("rapideye", pattern = "^getProduct.*streaming=True$",
+                  full.names = TRUE)
+
+## loop over containers and extract required files
+lst <- foreach(i = ctn) %dopar% {
+  fls <- unzip(i, list = TRUE)$Name
+  ord <- unique(getOrder(tfs))
+  ids <- sapply(c(paste0(c(ord, "udm"), ".tif$"), "metadata.xml"), 
+                function(j) grep(j, tfs))
+  unzip(i, files = fls[ids], exdir = dirname(i), overwrite = FALSE)
+}
 
 ## re-list extracted files
 drs <- dir(dir_prd, pattern = "_3A_", full.names = TRUE)
