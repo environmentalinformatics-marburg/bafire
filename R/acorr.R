@@ -155,7 +155,9 @@ for (h in lst) {
     
     execGRASS("i.atcorr", flags = c("r", "overwrite"), 
               parameters = list(input = paste0("bnd-", i), elevation = "dem", 
-                                parameters = fls_prm, output = paste0("atc-", i)))
+                                parameters = fls_prm, 
+                                # range = c(0, 1), rescale = c(0, 1), 
+                                output = paste0("atc-", i)))
     jnk <- file.remove(fls_prm)
     
     ## write image to disk  
