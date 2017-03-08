@@ -1,23 +1,27 @@
-setwd("/home/fdetsch/data/bale/arcsidata/Outputs")
+kea2tif <- function(path = ".", pattern = "srefdem.kea$", crs = NULL, ext = NULL,
+                    overwrite = FALSE, keep_bands = FALSE, ...) {
 
-library(raster)
-fls <- list.files(pattern = "srefdem.kea$")
-
-lst <- lapply(fls, function(i) {
+  fls <- list.files(path, pattern, full.names = TRUE)
   
-  nm <- gsub(".kea$", ".tif", i)
+  lst <- lapply(fls, function(i) {
+    
+    nm <- gsub(".kea$", ".tif", i)
+    
+    if (!file.exists(nm) | overwrite) {
+      try(file.remove(nm), silent = TRUE)
+      jnk <- gdalUtils::gdal_translate(i, nm, sds = TRUE, output_Raster = TRUE, 
+                                       ...)
+      sds <- list.files(path, paste0(gsub(".kea$", "", basename(i)), ".*.tif$"), 
+                        full.names = TRUE)
+      rst <- raster::stack(sds)
+      if (!is.null(crs)) raster::projection(rst) <- crs
+      if (!is.null(ext)) rst <- raster::setExtent(rst, ext)
+      jnk <- raster::writeRaster(rst, nm, overwrite = TRUE)
+      if (!keep_bands) jnk <- file.remove(sds); rm(jnk)
+    }
+    
+    return(raster::brick(nm))
+  })
   
-  if (file.exists(nm)) {
-    brick(nm)
-  } else {
-    jnk <- gdalUtils::gdal_translate(i, nm, sds = TRUE, output_Raster = TRUE)
-    
-    sds <- list.files(pattern = paste0(gsub(".kea$", "", i), ".*.tif$"))
-    rst <- stack(sds)
-    projection(rst) <- "+init=epsg:32637"
-    rst <- writeRaster(rst, nm)
-    
-    jnk <- file.remove(sds)
-    return(rst)
-  }
-})
+  return(if (length(lst) == 1) lst[[1]] else lst)
+}
