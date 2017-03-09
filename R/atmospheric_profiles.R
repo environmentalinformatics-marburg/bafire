@@ -4,15 +4,15 @@
 rm(list = ls(all = TRUE))
 
 ## load packages
-lib <- c("reset", "doParallel")
+lib <- c("reset", "parallel")
 Orcs::loadPkgs(lib)
 
 ## set working directory
 setwd("/media/fdetsch/data/bale")
 
 ## parallelization
-cl <- makeCluster(detectCores() - 1)
-registerDoParallel(cl)
+cl <- makePSOCKcluster(detectCores() - 1)
+jnk <- clusterEvalQ(cl, library(reset))
 
 ## reference extent
 ref <- raster("dem/dem_srtm_01_utm.tif")
@@ -21,6 +21,7 @@ ref <- as(extent(ref), "SpatialPolygons")
 
 ## required sds
 prm <- c("Total_Ozone", "Water_Vapor", "Water_Vapor_Direct")
+clusterExport(cl, "prm")
 
 
 ### rearrange data -------------------------------------------------------------
@@ -73,13 +74,14 @@ for (product in c("MOD07_L2", "MYD07_L2")) {
   if (any(!inside)) {
     jnk <- file.remove(fls[!inside])
     fls <- fls[inside]
-  } else {
-    stop("No files found, please take required measures.\n")
-  }
+  } 
   
-  ## geopotential heights
-  foreach(i = fls, .packages = "reset") %dopar%
-    stack(getSwathSDS(i, prm = prm, dsn = paste0("modis/", product))[[1]])
+  ## extract relevant sds
+  clusterExport(cl, "product")
+  parLapply(cl, fls, function(i) {
+    sds <- getSwathSDS(i, prm = prm, dsn = paste0("modis/", product))[[1]]
+    stack(sds)
+  })
 }
 
 ## deregister parallel backend
