@@ -10,12 +10,12 @@ setwd("/media/fdetsch/data/bale")
 # devtools::install_github("environmentalinformatics-marburg/reset")
 # devtools::install_github("italocegatta/rapidr")
 # devtools::install_github("fdetsch/Orcs")
-lib <- c("parallel", "rapidr", "Orcs")
+lib <- c("parallel", "rapidr", "Orcs", "reset")
 Orcs::loadPkgs(lib)
 
 ## functions
 bfr <- "~/repo/bafire/"
-jnk <- sapply(c("getInfo", "rapid_qc", "rapid_rad", "rapid_ref"), function(i) {
+jnk <- sapply(c("getInfo", "rapid_qc", "weightedAverage", "kea2tif"), function(i) {
   source(paste0(bfr, "R/", i, ".R"))
 })
 
@@ -40,8 +40,8 @@ jnk <- sapply(c("getInfo", "rapid_qc", "rapid_rad", "rapid_ref"), function(i) {
 ### http://rsgislib.org/arcsi/scripts.html#arcsi-py) -----
 
 ## valid arcsi values for aot, water content
-aod_vld <- c(0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.75, 0.95)
-wct_vld <- c(0.5, 1:6, 8:9)
+# aod_vld <- c(0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.75, 0.95)
+# wct_vld <- c(0.5, 1:6, 8:9)
 
 ## directions for adjacent pixels
 mat <- matrix(rep(1, 25), ncol = 5); mat[3, 3] <- 0
@@ -51,8 +51,12 @@ drs <- list.dirs("arcsidata/Inputs", recursive = FALSE)
 mtd <- sapply(drs, function(i) {
   list.files(i, pattern = "metadata.xml$", full.names = TRUE)
 })
-dts <- lapply(mtd, function(i) rapid_date(xml2::read_xml(i)))
-scl <- lapply(mtd, function(i) round(unique(rapid_sf(xml2::read_xml(i))), 2L))
+xml <- lapply(mtd, xml2::read_xml)
+dts <- lapply(xml, function(i) rapid_date(i))
+tms <- lapply(seq(xml), function(i) {
+  as.POSIXct(paste(dts[[i]], "00:00:00")) + rapid_hour(xml[[i]]) * 3600
+})
+scl <- sapply(xml, function(i) 1 / round(unique(rapid_sf(i)), 2L))
 
 ## digital elevation models per rapideye tile
 dem_utm <- raster("dem/dem_srtm_01_utm.tif")
@@ -72,7 +76,10 @@ dms <- lapply(unique(cid), function(h) {
 }); names(dms) <- unique(cid)
 
 ## loop over scenes
-for (h in 1:length(mtd)) {
+out <- lapply(1:length(mtd), function(h) {
+  
+  ## status message
+  cat("Image", dirname(mtd[[h]]), "is in, start processing.\n")
   
   # ## quality control
   # bds <- brick(gsub("_metadata.xml$", ".tif", mtd[h]))
@@ -88,35 +95,70 @@ for (h in 1:length(mtd)) {
   ## aerosol optical depth (aod; which modis overpass is closer to rapideye?), 
   ## atmospheric water (wct) and ozone content (oct)
   prj <- projectExtent(dem, crs = "+init=epsg:4326")
+  pry <- as(extent(prj), "SpatialPolygons")
+  proj4string(pry) <- proj4string(dem)
   atm <- sapply(c("Aerosol_Optical_Depth", "Water_Vapor", "Total_Ozone"), 
                 function(z) {
+
+    mod_all <- list.files("modis", full.names = TRUE, pattern = paste0(z, ".tif$"), 
+                          recursive = TRUE)
+    isc <- sapply(mod_all, function(w) {
+      rst <- raster(w) 
+      spy <- as(extent(rst), "SpatialPolygons")
+      proj4string(spy) <- proj4string(pry)
+      rgeos::gIntersects(spy, pry)
+    })
+    mod_all <- mod_all[isc]
     
-    mod <- list.files("modis", full.names = TRUE, pattern = paste0(z, ".tif$"), 
-                      recursive = TRUE)
-    mod <- mod[grep(format(dts[[h]], "%Y%j"), mod)]
+    mod_dts <- mod_all[grep(format(dts[[h]], "%Y%j"), mod_all)]
   
-    val <- mean(sapply(mod, function(i) {
-      weightedAverage(i, prj, snap = "out")
-    }), na.rm = TRUE)
     
-    if (z == "Total_Ozone") val <- val / 1000
-    return(round(val, digits = 2L))
+    val <- sapply(mod_dts, function(i) {
+      tmp <- try(weightedAverage(i, prj, snap = "out"), silent = TRUE)
+      if (inherits(tmp, "try-error")) return(NA) else return(tmp)
+    })
+    
+    if (z == "Aerosol_Optical_Depth") {
+      out <- mean(val, na.rm = TRUE)
+    } else {
+      dfs <- abs(difftime(tms[[h]], getSwathDateTime(mod_dts)))
+      out <- NA
+      for (y in val[order(dfs)]) {
+        out <- y
+        if (!is.na(out)) break
+      }
+    }
+    
+    ## if no value for the respective date is available, retrieve long-term mean
+    if (is.na(out)) {
+      out <- mean(sapply(mod_all, function(i) {
+        weightedAverage(i, prj, snap = "out")
+      }), na.rm = TRUE)
+    }
+
+    if (z == "Total_Ozone") out <- out / 1000
+    return(round(out, digits = 2L))
   
     # aod <- if (is.na(aod)) .01 else aod_vld[which.min(abs(aod - aod_vld))]
     # wct <- if (is.na(wct)) .01 else wct_vld[which.min(abs(wct - wct_vld))]
   })
   
   ## apply atmospheric correction
-  cmd <- paste("arcsi.py -s rapideye -f KEA -p TOA SREF", 
-               "--aeropro Continental --atmospro Tropical", 
+  cmd <- paste("arcsi.py -s rapideye -f KEA -p RAD SREF",
+               "--aeropro Continental --atmospro Tropical",
                "--atmoswater", atm[2], "--atmosozone", atm[3],
-               "--aot", atm[1], "--dem", attr(dem@file, "name"), 
-               "--scalefac", 1 / scl[[h]], "-i", mtd[h],
+               "--aot", atm[1], "--dem", attr(dem@file, "name"),
+               "--scalefac", scl[h], "-i", mtd[h],
                "-t arcsidata/Temp -o arcsidata/Outputs")
-  
+
+  system(cmd)
+
   # if (h == 1) {
   #   cat("#!/bin/bash\n\n", file = "arcsibatch.sh")
   # }
   # 
   # cat(paste0(cmd, "\n\n"), file = "arcsibatch.sh", append = TRUE)
-}
+})
+
+srf <- kea2tif("arcsidata/Outputs", crs = "+init=epsg:32637", ext = extent(dem), 
+               overwrite = TRUE)

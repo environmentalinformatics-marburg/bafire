@@ -1,27 +1,23 @@
-kea2tif <- function(path = ".", pattern = "srefdem.kea$", crs = NULL, ext = NULL,
-                    overwrite = FALSE, keep_bands = FALSE, ...) {
+kea2tif <- function(path = ".", pattern = "srefdem.kea$", keep_kea = TRUE, 
+                    overwrite = FALSE, ...) {
 
+  ## list and loop over .kea files in 'path'
   fls <- list.files(path, pattern, full.names = TRUE)
-  
   lst <- lapply(fls, function(i) {
-    
+
+    # target file name    
     nm <- gsub(".kea$", ".tif", i)
     
+    # if target file does not exist or 'overwrite', translate
     if (!file.exists(nm) | overwrite) {
-      try(file.remove(nm), silent = TRUE)
-      jnk <- gdalUtils::gdal_translate(i, nm, sds = TRUE, output_Raster = TRUE, 
-                                       ...)
-      sds <- list.files(path, paste0(gsub(".kea$", "", basename(i)), ".*.tif$"), 
-                        full.names = TRUE)
-      rst <- raster::stack(sds)
-      if (!is.null(crs)) raster::projection(rst) <- crs
-      if (!is.null(ext)) rst <- raster::setExtent(rst, ext)
-      jnk <- raster::writeRaster(rst, nm, overwrite = TRUE)
-      if (!keep_bands) jnk <- file.remove(sds); rm(jnk)
+      if (file.exists(nm)) jnk <- file.remove(nm)
+      jnk <- gdalUtils::gdal_translate(i, nm, ...)
+      if (!keep_kea) jnk <- file.remove(i)
     }
     
-    return(raster::brick(nm))
+    return(raster::stack(nm))
   })
   
+  ## return (list of) images
   return(if (length(lst) == 1) lst[[1]] else lst)
 }
