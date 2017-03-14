@@ -47,7 +47,7 @@ rapid_qc <- function(x, qa, directions = 8L, ...) {
   
   # discard all pixels with a quality flag value larger than 0    
   raster::overlay(x, qa, fun = function(x, y) {
-    x[y[] != 0] <- NA
+    x[y[] != 0 | is.na(y[])] <- NA
     return(x)
   }, ...)
 }
