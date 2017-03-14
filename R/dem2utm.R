@@ -1,4 +1,4 @@
-setwd("/media/permanent/data/bale")
+Orcs::setwdOS(path_win = "E:/", path_ext = "data/bale")
 
 library(raster)
 library(rgdal)
@@ -10,7 +10,8 @@ proj4string(ext) <- proj4string(tls)
 ext <- suppressWarnings(rgeos::gBuffer(ext, width = .01))
 dem <- crop(dem, ext, snap = "out")
 
-ref <- brick(tfs[2])
-dem_utm <- as.integer(projectRaster(dem, crs = proj4string(ref)))
-dataType(dem_utm) <- dataType(dem)
-dem_utm <- writeRaster(dem_utm, "dem/dem_srtm_01_utm.tif", format = "GTiff")
+tfs <- "rapideye/3742218_2016-02-11_RE2_3A_627058/3742218_2016-02-11_RE2_3A_627058.tif"
+ref <- brick(tfs)
+dem_utm <- projectRaster(dem, crs = proj4string(ref))
+dem_utm <- writeRaster(dem_utm, "dem/dem_srtm_01_utm.tif", format = "GTiff", 
+                       overwrite = TRUE)
