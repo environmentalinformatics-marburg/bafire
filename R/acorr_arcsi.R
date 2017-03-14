@@ -8,9 +8,10 @@ setwd("/media/fdetsch/data/bale")
 
 ## packages
 # devtools::install_github("environmentalinformatics-marburg/reset")
+# devtools::install_github("environmentalinformatics-marburg/Rsenal")
 # devtools::install_github("italocegatta/rapidr")
 # devtools::install_github("fdetsch/Orcs")
-lib <- c("parallel", "rapidr", "Orcs", "reset")
+lib <- c("parallel", "rapidr", "Orcs", "reset", "Rsenal")
 Orcs::loadPkgs(lib)
 
 ## functions
@@ -47,8 +48,10 @@ jnk <- sapply(c("getInfo", "rapid_qc", "weightedAverage", "kea2tif"), function(i
 mat <- matrix(rep(1, 25), ncol = 5); mat[3, 3] <- 0
 
 ## inputs (ie metadata files)
-drs <- list.dirs("arcsidata/Inputs", recursive = FALSE)
-mtd <- sapply(drs, function(i) {
+raw <- list.dirs("arcsidata/Raw", recursive = FALSE)
+ord <- getOrder(raw)
+inp <- paste0("arcsidata/Inputs/", basename(raw))
+mtd <- sapply(raw, function(i) {
   list.files(i, pattern = "metadata.xml$", full.names = TRUE)
 })
 xml <- lapply(mtd, xml2::read_xml)
@@ -60,10 +63,10 @@ scl <- sapply(xml, function(i) 1 / round(unique(rapid_sf(i)), 2L))
 
 ## digital elevation models per rapideye tile
 dem_utm <- raster("dem/dem_srtm_01_utm.tif")
-cid <- sapply(strsplit(basename(drs), "_"), "[[", 1)
+cid <- sapply(strsplit(basename(raw), "_"), "[[", 1)
 
 dms <- lapply(unique(cid), function(h) {
-  dr <- drs[grep(h, drs)][1]
+  dr <- raw[grep(h, raw)][1]
   fl <- list.files(dr, pattern = paste0(getOrder(dr), ".tif"), full.names = TRUE)
   nm <- paste0(gsub(".tif$", "_", attr(dem_utm@file, "name")), h, ".tif")
   
@@ -76,18 +79,51 @@ dms <- lapply(unique(cid), function(h) {
 }); names(dms) <- unique(cid)
 
 ## loop over scenes
+adj <- matrix(rep(1, 25), ncol = 5); adj[13] <- 0
+
 out <- lapply(1:length(mtd), function(h) {
   
   ## status message
-  cat("Image", dirname(mtd[[h]]), "is in, start processing.\n")
+  cat("Image", raw[h], "is in, start processing.\n")
   
-  # ## quality control
-  # bds <- brick(gsub("_metadata.xml$", ".tif", mtd[h]))
-  # udm <- raster(gsub(".tif$", "_udm.tif", attr(bds@file, "name")))
+  ## custom cloud mask (https://github.com/CONABIO/rapideye-cloud-detection)
+  bds <- list.files(raw[h], full.names = TRUE, pattern = paste0(ord[h], ".tif$"))
+  udm <- list.files(raw[h], pattern = "udm.tif$", full.names = TRUE)
+  
+  cmd <- paste("cd /home/fdetsch/repo/rapideye-cloud-detection/;", 
+               "docker run -i -v", 
+               paste0(getwd(), "/", raw[h], "/:/rapideye/"), 
+               "-v $(pwd):/data rapideye-clouds", 
+               "python main.py /rapideye/")
+
+  system(cmd)
+
+  msk <- raster(list.files(raw[h], pattern = "cloud.tif$", full.names = TRUE))
+  
+  jnk <- list.files(raw[h], pattern = "toa.tif$", full.names = TRUE)
+  jnk <- file.remove(jnk)
+  
+  fnc <- gsub("cloud", "cloudfree", attr(msk@file, "name"))
+  cld <- overlay(brick(bds), msk, fun = function(x, y) {
+    x[y[] == 4] <- NA
+    return(x)
+  }, filename = fnc, overwrite = TRUE)
+
+  ## built-in unusable data mask
+  if (!dir.exists(inp[h])) dir.create(inp[h])
+  fnu <- paste(inp[h], basename(bds), sep = "/")
+  qcl <- rapid_qc(cld, udm, directions = adj, filename = fnu, overwrite = TRUE)
+  rm(cld); jnk <- file.remove(fnc)
+  
+  # ## custom shadow mask (dx.doi.org/10.6029/smartcr.2014.01.003)
+  # shw <- rgbShadowMask(cld[[3:1]], n = 1L)
   # 
-  # nm <- gsub(".tif$", "_QC.tif", attr(bds@file, "name"))
-  # if (!file.exists(nm))
-  #   jnk <- rapid_qc(bds, udm, directions = mat, filename = nm)
+  # fns <- paste(drs[h], basename(bds), sep = "/")
+  # lgt <- overlay(cld, shw, fun = function(x, y) {
+  #   x[y[] == 0] <- NA
+  #   return(x)
+  # }, filename = fns, overwrite = TRUE)
+  # jnk <- file.remove(fnc); rm(cld)
   
   ## digital elevation model
   dem <- dms[[grep(cid[h], names(dms))]]
@@ -144,21 +180,29 @@ out <- lapply(1:length(mtd), function(h) {
   })
   
   ## apply atmospheric correction
-  cmd <- paste("arcsi.py -s rapideye -f KEA -p RAD SREF",
+  input <- gsub("Raw", "Inputs", mtd[h]); jnk <- file.copy(mtd[h], input)
+  cmd <- paste("arcsi.py -s rapideye -f KEA -p SREF",
                "--aeropro Continental --atmospro Tropical",
                "--atmoswater", atm[2], "--atmosozone", atm[3],
                "--aot", atm[1], "--dem", attr(dem@file, "name"),
-               "--scalefac", scl[h], "-i", mtd[h],
+               "--scalefac", scl[h], "-i", input,
                "-t arcsidata/Temp -o arcsidata/Outputs")
 
   system(cmd)
 
-  # if (h == 1) {
-  #   cat("#!/bin/bash\n\n", file = "arcsibatch.sh")
-  # }
-  # 
-  # cat(paste0(cmd, "\n\n"), file = "arcsibatch.sh", append = TRUE)
+  tfs <- kea2tif("arcsidata/Outputs", overwrite = FALSE, keep_kea = FALSE)
+  fno <- attr(tfs@layers[[1]]@file, "name")
+  
+  val <- qcl[[1]][]
+  ids <- is.na(val); val[ids] <- 0; val[!ids] <- 1
+  tmp <- setValues(qcl[[1]], val)
+  tfs <- overlay(tfs, tmp, fun = function(x, y) {
+    x[y[] == 0] <- NA
+    return(x)
+  })
+  
+  for (v in c(".kea$", ".xml$"))
+    file.remove(list.files("arcsidata/Outputs", pattern = v, full.names = TRUE))
+  
+  writeRaster(tfs, fno, overwrite = TRUE)
 })
-
-srf <- kea2tif("arcsidata/Outputs", crs = "+init=epsg:32637", ext = extent(dem), 
-               overwrite = TRUE)
