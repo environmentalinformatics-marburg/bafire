@@ -31,7 +31,7 @@ rapid_rad <- function(x, meta, digits = NULL, ...) {
   if (inherits(meta, "character")) meta <- xml2::read_xml(meta)
 
   ## extract scale factors from metadata  
-  scf <- rapid_sf(meta)
+  scf <- rapidr::rapid_sf(meta)
   
   ## calculate at-sensor radiances from raw dn and layer-specific scale factors
   raster::calc(x, fun = function(x) {
