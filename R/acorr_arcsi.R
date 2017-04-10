@@ -16,7 +16,8 @@ Orcs::loadPkgs(lib)
 
 ## functions
 bfr <- "~/repo/bafire/"
-jnk <- sapply(c("getInfo", "rapid_qc", "weightedAverage", "kea2tif"), function(i) {
+jnk <- sapply(c("getInfo", "rapid_qc", "weightedAverage", "kea2tif", 
+                "rapid_shadows", "findpeaks"), function(i) {
   source(paste0(bfr, "R/", i, ".R"))
 })
 
@@ -45,7 +46,7 @@ jnk <- sapply(c("getInfo", "rapid_qc", "weightedAverage", "kea2tif"), function(i
 # wct_vld <- c(0.5, 1:6, 8:9)
 
 ## directions for adjacent pixels
-mat <- matrix(rep(1, 25), ncol = 5); mat[3, 3] <- 0
+adj <- matrix(rep(1, 25), ncol = 5); adj[3, 3] <- 0
 
 ## inputs (ie metadata files)
 raw <- list.dirs("arcsidata/Raw", recursive = FALSE)
@@ -79,17 +80,21 @@ dms <- lapply(unique(cid), function(h) {
 }); names(dms) <- unique(cid)
 
 ## loop over scenes
-adj <- matrix(rep(1, 25), ncol = 5); adj[13] <- 0
-
 out <- lapply(1:length(mtd), function(h) {
   
   ## status message
   cat("Image", raw[h], "is in, start processing.\n")
+
+  ## custom shadow mask
+  bds <- list.files(raw[h], paste0(ord[h], ".tif$"), full.names = TRUE)
+  udm <- raster(list.files(raw[h], pattern = "udm.tif$", full.names = TRUE))
+  
+  if (any(udm[] != 0)) {
+    fns <- gsub(".tif$", "_shadowfree.tif", bds)
+    shw <- rapid_shadows(bds, adj, limit = 0.2, filename = fns)
+  }
   
   ## custom cloud mask (https://github.com/CONABIO/rapideye-cloud-detection)
-  bds <- list.files(raw[h], full.names = TRUE, pattern = paste0(ord[h], ".tif$"))
-  udm <- list.files(raw[h], pattern = "udm.tif$", full.names = TRUE)
-  
   cmd <- paste("cd /home/fdetsch/repo/rapideye-cloud-detection/;", 
                "docker run -i -v", 
                paste0(getwd(), "/", raw[h], "/:/rapideye/"), 
