@@ -88,11 +88,11 @@ out <- lapply(1:length(mtd), function(h) {
   ## custom shadow mask
   bds <- list.files(raw[h], paste0(ord[h], ".tif$"), full.names = TRUE)
   udm <- raster(list.files(raw[h], pattern = "udm.tif$", full.names = TRUE))
-  
-  if (any(udm[] != 0)) {
-    fns <- gsub(".tif$", "_shadowfree.tif", bds)
-    shw <- rapid_shadows(bds, adj, limit = 0.2, filename = fns)
-  }
+
+  # if (any(udm[] != 0)) {
+  #   fns <- gsub(".tif$", "_shadowfree.tif", bds)
+  #   shw <- rapid_shadows(bds, adj, limit = 0.2, filename = fns)
+  # }
   
   ## custom cloud mask (https://github.com/CONABIO/rapideye-cloud-detection)
   cmd <- paste("cd /home/fdetsch/repo/rapideye-cloud-detection/;", 
@@ -105,9 +105,9 @@ out <- lapply(1:length(mtd), function(h) {
 
   msk <- raster(list.files(raw[h], pattern = "cloud.tif$", full.names = TRUE))
   
-  jnk <- list.files(raw[h], pattern = "toa.tif$", full.names = TRUE)
-  jnk <- file.remove(jnk)
-  
+  for (i in c("local.png$", "toa.tif$"))
+    jnk <- file.remove(list.files(raw[h], pattern = i, full.names = TRUE))
+
   fnc <- gsub("cloud", "cloudfree", attr(msk@file, "name"))
   cld <- overlay(brick(bds), msk, fun = function(x, y) {
     x[y[] == 4] <- NA
