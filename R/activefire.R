@@ -6,9 +6,13 @@ lib <- c("MODIS", "doParallel", "rgdal")
 jnk <- sapply(lib, function(x) library(x, character.only = TRUE))
 
 ## modis options
-MODISoptions(localArcPath = "/media/fdetsch/FREECOM_HDD/MODIS_ARC", 
-             outDirPath = "/media/fdetsch/FREECOM_HDD/MODIS_ARC/PROCESSED/", 
-             outProj = "+init=epsg:4326")
+os <- switch(Sys.info()[["sysname"]]
+             , "Windows" = "F:/"
+             , "Linux" = "/media/fdetsch/XChange/")
+
+MODISoptions(localArcPath = paste0(os, "MODIS_ARC")
+             , outDirPath = paste0(os, "MODIS_ARC/PROCESSED/")
+             , outProj = "+init=epsg:32637")
 
 ## parallelization
 cl <- makeCluster(detectCores() - 1)
@@ -17,10 +21,14 @@ registerDoParallel(cl)
 
 ### data download -----
 
+## reference extent
+source("R/uniformExtent.R")
+ref <- uniformExtent(f = 0)
+
 ## download and extract data
-for (product in c("MOD14A1", "MYD14A1"))
-  runGdal(product, tileH = 21, tileV = 8, job = paste0(product, ".006"),
-          collection = getCollection(product, forceCheck = TRUE))
+cll <- getCollection("M*D14A1")
+tfs <- runGdal("M*D14A1", extent = ref, job = "MCD14A1.006",
+               end = "2015365", collection = unique(unlist(cll)))
 
 
 ### preprocessing -----
@@ -29,12 +37,6 @@ for (product in c("MOD14A1", "MYD14A1"))
 dir_dat <- "data"
 if (!dir.exists(dir_dat)) dir.create(dir_dat)
 
-## reference extent
-ref <- readOGR("inst/extdata", "balemountains")
-ref <- spTransform(ref, CRS = CRS("+init=epsg:32637"))
-ref <- rgeos::gBuffer(ref, width = 2000, quadsegs = 1000)
-ref <- spTransform(ref, CRS = CRS("+init=epsg:4326"))
-
 ## loop over products
 lst_prd <- lapply(c("MOD14A1.006", "MYD14A1.006"), function(product) {
   
@@ -42,39 +44,24 @@ lst_prd <- lapply(c("MOD14A1.006", "MYD14A1.006"), function(product) {
   dir_prd <- paste(dir_dat, product, sep = "/")
   if (!dir.exists(dir_prd)) dir.create(dir_prd)
   
-  
-  ### clipping -----
-  
-  ## target folder for clipping
-  dir_crp <- paste0(dir_prd, "/crp")
-  if (!dir.exists(dir_crp)) dir.create(dir_crp)
-  
-  rst_crp <- foreach(i = c("FireMask", "QA", "MaxFRP", "sample")) %do% {                                      
-                       
+  rst <- foreach(i = c("FireMask", "QA", "MaxFRP", "sample")) %do% {                                      
+    
     # list and import available files
-    fls <- list.files(paste0(getOption("MODIS_outDirPath"), "/", product),
-                      pattern = paste0(i, ".tif$"), full.names = TRUE)
+    fls <- list.files(paste0(getOption("MODIS_outDirPath"), "/MCD14A1.006"),
+                      pattern = paste(gsub("\\.006", "", product), i, ".tif$", sep = ".*"), 
+                      full.names = TRUE)
     
-    # target files
-    fls_crp <- paste(dir_crp, basename(fls), sep = "/")
-    
-    # loop over files
-    lst_crp <- foreach(j = 1:length(fls), .packages = "raster", 
-                       .export = ls(envir = globalenv())) %dopar% {
-      if (file.exists(fls_crp[j])) {
-        stack(fls_crp[j])
-      } else {                  
-        rst <- stack(fls[j])
-        rst_crp <- crop(rst, ref, snap = "out") 
-        
-        if (i == "MaxFRP")
-          rst_crp <- rst_crp * 0.1
-        
-        writeRaster(rst_crp, fls_crp[j], format = "GTiff", overwrite = TRUE)
-      }
+    lst <- foreach(j = fls, .packages = "raster", 
+                   .export = ls(envir = environment())) %dopar% {
+      rst <- stack(j)
+      
+      if (i == "MaxFRP")
+        rst <- rst * 0.1
+      
+      return(rst)
     }
     
-    stack(lst_crp)
+    stack(lst)
   }
     
   
