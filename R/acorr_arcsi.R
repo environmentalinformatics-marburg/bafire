@@ -80,7 +80,7 @@ dms <- lapply(unique(cid), function(h) {
 }); names(dms) <- unique(cid)
 
 ## loop over scenes
-out <- lapply(1:length(mtd), function(h) {
+for (h in 1:length(mtd)) {
   
   ## status message
   cat("Image", raw[h], "is in, start processing.\n")
@@ -88,11 +88,11 @@ out <- lapply(1:length(mtd), function(h) {
   ## custom shadow mask
   bds <- list.files(raw[h], paste0(ord[h], ".tif$"), full.names = TRUE)
   udm <- raster(list.files(raw[h], pattern = "udm.tif$", full.names = TRUE))
-  
-  if (any(udm[] != 0)) {
-    fns <- gsub(".tif$", "_shadowfree.tif", bds)
-    shw <- rapid_shadows(bds, adj, limit = 0.2, filename = fns)
-  }
+
+  # if (any(udm[] != 0)) {
+  #   fns <- gsub(".tif$", "_shadowfree.tif", bds)
+  #   shw <- rapid_shadows(bds, adj, limit = 0.2, filename = fns)
+  # }
   
   ## custom cloud mask (https://github.com/CONABIO/rapideye-cloud-detection)
   cmd <- paste("cd /home/fdetsch/repo/rapideye-cloud-detection/;", 
@@ -103,22 +103,22 @@ out <- lapply(1:length(mtd), function(h) {
 
   system(cmd)
 
-  msk <- raster(list.files(raw[h], pattern = "cloud.tif$", full.names = TRUE))
+  # msk <- raster(list.files(raw[h], pattern = "cloud.tif$", full.names = TRUE))
   
-  jnk <- list.files(raw[h], pattern = "toa.tif$", full.names = TRUE)
-  jnk <- file.remove(jnk)
-  
-  fnc <- gsub("cloud", "cloudfree", attr(msk@file, "name"))
-  cld <- overlay(brick(bds), msk, fun = function(x, y) {
-    x[y[] == 4] <- NA
-    return(x)
-  }, filename = fnc, overwrite = TRUE)
+  for (i in c("local.png$", "toa.tif$"))
+    jnk <- file.remove(list.files(raw[h], pattern = i, full.names = TRUE))
 
-  ## built-in unusable data mask
-  if (!dir.exists(inp[h])) dir.create(inp[h])
-  fnu <- paste(inp[h], basename(bds), sep = "/")
-  qcl <- rapid_qc(cld, udm, directions = adj, filename = fnu, overwrite = TRUE)
-  rm(cld); jnk <- file.remove(fnc)
+  # fnc <- gsub("cloud", "cloudfree", attr(msk@file, "name"))
+  # cld <- overlay(brick(bds), msk, fun = function(x, y) {
+  #   x[y[] == 4] <- NA
+  #   return(x)
+  # }, filename = fnc, overwrite = TRUE)
+
+  # ## built-in unusable data mask
+  # if (!dir.exists(inp[h])) dir.create(inp[h])
+  # fnu <- paste(inp[h], basename(bds), sep = "/")
+  # qcl <- rapid_qc(cld, udm, directions = adj, filename = fnu, overwrite = TRUE)
+  # rm(cld); jnk <- file.remove(fnc)
   
   # ## custom shadow mask (dx.doi.org/10.6029/smartcr.2014.01.003)
   # shw <- rgbShadowMask(cld[[3:1]], n = 1L)
@@ -185,29 +185,28 @@ out <- lapply(1:length(mtd), function(h) {
   })
   
   ## apply atmospheric correction
-  input <- gsub("Raw", "Inputs", mtd[h]); jnk <- file.copy(mtd[h], input)
+  # input <- gsub("Raw", "Inputs", mtd[h]); jnk <- file.copy(mtd[h], input)
   cmd <- paste("arcsi.py -s rapideye -f KEA -p SREF",
                "--aeropro Continental --atmospro Tropical",
                "--atmoswater", atm[2], "--atmosozone", atm[3],
                "--aot", atm[1], "--dem", attr(dem@file, "name"),
-               "--scalefac", scl[h], "-i", input,
-               "-t arcsidata/Temp -o arcsidata/Outputs")
+               "-i", mtd[h], "-t arcsidata/Temp -o arcsidata/Outputs")
 
   system(cmd)
 
-  tfs <- kea2tif("arcsidata/Outputs", overwrite = FALSE, keep_kea = FALSE)
-  fno <- attr(tfs@layers[[1]]@file, "name")
-  
-  val <- qcl[[1]][]
-  ids <- is.na(val); val[ids] <- 0; val[!ids] <- 1
-  tmp <- setValues(qcl[[1]], val)
-  tfs <- overlay(tfs, tmp, fun = function(x, y) {
-    x[y[] == 0] <- NA
-    return(x)
-  })
-  
-  for (v in c(".kea$", ".xml$"))
-    file.remove(list.files("arcsidata/Outputs", pattern = v, full.names = TRUE))
-  
-  writeRaster(tfs, fno, overwrite = TRUE)
-})
+  # tfs <- kea2tif("arcsidata/Outputs", overwrite = FALSE, keep_kea = TRUE)
+  # fno <- attr(tfs@layers[[1]]@file, "name")
+  # 
+  # val <- qcl[[1]][]
+  # ids <- is.na(val); val[ids] <- 0; val[!ids] <- 1
+  # tmp <- setValues(qcl[[1]], val)
+  # tfs <- overlay(tfs, tmp, fun = function(x, y) {
+  #   x[y[] == 0] <- NA
+  #   return(x)
+  # })
+  # 
+  # for (v in c(".kea$", ".xml$"))
+  #   file.remove(list.files("arcsidata/Outputs", pattern = v, full.names = TRUE))
+  # 
+  # writeRaster(tfs, fno, overwrite = TRUE)
+}
