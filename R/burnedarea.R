@@ -6,20 +6,21 @@ lib <- c("MODIS", "doParallel", "rgdal")
 jnk <- sapply(lib, function(x) library(x, character.only = TRUE))
 
 ## modis options
-MODISoptions(localArcPath = "/media/fdetsch/FREECOM_HDD/MODIS_ARC", 
-             outDirPath = "/media/fdetsch/FREECOM_HDD/MODIS_ARC/PROCESSED/", 
-             outProj = "+init=epsg:4326")
+MODISoptions(localArcPath = "/media/fdetsch/XChange/MODIS_ARC", 
+             outDirPath = "/media/fdetsch/XChange/MODIS_ARC/PROCESSED/", 
+             outProj = "+init=epsg:32637")
 
 ## parallelization
 cl <- makeCluster(detectCores() - 1)
 registerDoParallel(cl)
 
 
-# ### data download -----
-# 
-# ## download and extract data
-# runGdal("MCD45A1", tileH = 21, tileV = 8, job = "MCD45A1.051", 
-#         SDSstring = "11000000")
+### data download -----
+
+## download and extract data
+cll <- getCollection("MCD45A1", forceCheck = TRUE)
+tfs <- runGdal("MCD45A1", collection = cll, tileH = 21, tileV = 8, 
+               job = paste0("MCD45A1.", cll), SDSstring = "11000000")
 
 
 ### preprocessing -----
@@ -36,6 +37,7 @@ if (!dir.exists(dir_prd)) dir.create(dir_prd)
 
 ## reference extent
 ref <- raster("data/MOD14A1.006/crp/MOD14A1.A2000049.FireMask.tif")
+ref <- projectExtent(ref, crs = "+init=epsg:32637")
 
 ## target folder for clipping
 dir_crp <- paste0(dir_prd, "/crp")
@@ -51,14 +53,13 @@ rst_crp <- foreach(i = c("burndate", "ba_qa")) %do% {
   fls_crp <- paste(dir_crp, basename(fls), sep = "/")
   
   # loop over files
-  lst_crp <- foreach(j = 1:length(fls), .packages = "raster", 
+  lst_crp <- foreach(j = fls, k = fls_crp, .packages = "raster", 
                      .export = ls(envir = globalenv())) %dopar% {
-    if (file.exists(fls_crp[j])) {
-      stack(fls_crp[j])
+    if (file.exists(k)) {
+      raster(k)
     } else {                  
-      rst <- raster(fls[j])
-      rst_crp <- crop(rst, ref, snap = "near", filename = fls_crp[j], 
-                      format = "GTiff", overwrite = TRUE)
+      rst <- raster(j)
+      rst_crp <- crop(rst, ref, snap = "near", filename = k)
     }
   }
   
@@ -84,8 +85,7 @@ lst_rcl <- foreach(j = 1:nlayers(rst_crp[[1]]), .packages = lib) %dopar% {
     raster(fls_rcl[j])
   } else {
     reclassify(rst_crp[[1]][[j]], rcl, include.lowest = TRUE, 
-               right = FALSE, filename = fls_rcl[j], 
-               format = "GTiff", overwrite = TRUE)
+               right = FALSE, filename = fls_rcl[j])
   }
 }
 
@@ -98,9 +98,9 @@ dts <- extractDate(rst_rcl)$inputLayerDates
 indices <- format(as.Date(dts, "%Y%j"), "%Y")
 indices <- as.integer(indices)
 
-rst_agg <- stackApply(rst_rcl, indices, fun = function(x) {
-  sum(!is.na(x))
-})
+rst_agg <- stackApply(rst_rcl, indices, fun = function(x, ...) {
+  sum(!is.na(x), ...)
+}, na.rm = FALSE)
 
 ## write to disk
 dir_agg <- paste0(dir_prd, "/agg1yr")
