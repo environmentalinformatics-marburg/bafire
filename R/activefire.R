@@ -1,9 +1,11 @@
 ### environmental stuff -----
 
-## required packages
+## required packages and functions
 # devtools::install_github("MatMatt/MODIS", ref = "develop")
 lib <- c("MODIS", "doParallel", "rgdal")
 jnk <- sapply(lib, function(x) library(x, character.only = TRUE))
+
+source("R/fireDates.R")
 
 ## modis options
 os <- switch(Sys.info()[["sysname"]]
@@ -21,14 +23,12 @@ registerDoParallel(cl)
 
 ### data download -----
 
-## reference extent
-source("R/uniformExtent.R")
-ref <- uniformExtent(f = 0)
-
 ## download and extract data
-cll <- getCollection("M*D14A1")
-tfs <- runGdal("M*D14A1", extent = ref, job = "MCD14A1.006",
-               end = "2015365", collection = unique(unlist(cll)))
+cll <- unique(unlist(getCollection("M*D14A1")))
+if (length(cll) > 1L) stop("More than one unique collection found.\n")
+
+tfs <- runGdal("M*D14A1", extent = readRDS("inst/extdata/uniformExtent.rds"), 
+               job = "MCD14A1.006", end = as.Date("2017-04-22"))
 
 
 ### preprocessing -----
@@ -37,33 +37,18 @@ tfs <- runGdal("M*D14A1", extent = ref, job = "MCD14A1.006",
 dir_dat <- "data"
 if (!dir.exists(dir_dat)) dir.create(dir_dat)
 
+## reclassification matrix
+rcl <- matrix(c(0, 7, NA, 
+                7, 10, 1, 
+                10, 255, NA), ncol = 3, byrow = TRUE)
+
 ## loop over products
-lst_prd <- lapply(c("MOD14A1.006", "MYD14A1.006"), function(product) {
+lst_prd <- foreach(product = names(tfs), .packages = "MODIS") %dopar% {
   
   ## product-specific target folder
   dir_prd <- paste(dir_dat, product, sep = "/")
   if (!dir.exists(dir_prd)) dir.create(dir_prd)
   
-  rst <- foreach(i = c("FireMask", "QA", "MaxFRP", "sample")) %do% {                                      
-    
-    # list and import available files
-    fls <- list.files(paste0(getOption("MODIS_outDirPath"), "/MCD14A1.006"),
-                      pattern = paste(gsub("\\.006", "", product), i, ".tif$", sep = ".*"), 
-                      full.names = TRUE)
-    
-    lst <- foreach(j = fls, .packages = "raster", 
-                   .export = ls(envir = environment())) %dopar% {
-      rst <- stack(j)
-      
-      if (i == "MaxFRP")
-        rst <- rst * 0.1
-      
-      return(rst)
-    }
-    
-    stack(lst)
-  }
-    
   
   ### reclassification -----
   
@@ -71,57 +56,21 @@ lst_prd <- lapply(c("MOD14A1.006", "MYD14A1.006"), function(product) {
   dir_rcl <- paste0(dir_prd, "/rcl")
   if (!dir.exists(dir_rcl)) dir.create(dir_rcl)
   
-  fls_rcl <- paste0(dir_rcl, "/", names(rst_crp[[1]]), ".tif")
+  fls <- unlist(sapply(tfs[[product]], "[[", 1))
+  fls_rcl <- paste0(dir_rcl, "/", fls, ".tif")
   
-  ## reclassification matrix
-  rcl <- matrix(c(0, 7, NA, 
-                  7, 10, 1, 
-                  10, 255, NA), ncol = 3, byrow = TRUE)
+  ## start and end date
+  dts <- sapply(c(names(fls[1]), names(fls[length(fls)])), function(z) {
+    transDate(z)$beginDOY
+  })
   
-  ## loop over layers
-  lst_rcl <- foreach(j = 1:nlayers(rst_crp[[1]]), .packages = lib, 
-          .export = ls(envir = globalenv())) %dopar% {
-    if (file.exists(fls_rcl[j])) {
-      raster(fls_rcl[j])
-    } else {
-      reclassify(rst_crp[[1]][[j]], rcl, include.lowest = TRUE, 
-                 right = FALSE, filename = fls_rcl[j], 
-                 format = "GTiff", overwrite = TRUE)
-    }
-  }
+  fls_rcl <- paste0(dir_rcl, "/", gsub(cll, "", product), 
+                    paste(dts, collapse = "_"), ".FireMask.tif")
   
-  rst_rcl <- stack(lst_rcl); rm(lst_rcl)
-  return(rst_rcl)
-  
-  # ### annual fire frequencies -----
-  # 
-  # ## indices
-  # dts <- extractDate(names(rst[[1]]))$inputLayerDates
-  # yrs <- substr(dts, 1, 4)
-  # ids <- as.numeric(as.factor(yrs))
-  # 
-  # ## target folder and files
-  # dir_yrs <- paste0(dir_prd, "/yrs")
-  # if (!dir.exists(dir_yrs)) dir.create(dir_yrs)
-  # 
-  # fls_yrs <- sapply(unique(yrs), function(j) {
-  #   gsub(dts[1], j, names(rst[[1]])[1])
-  # })
-  # fls_yrs <- paste0(dir_yrs, "/", fls_yrs, ".tif")
-  # 
-  # for (j in seq(unique(ids))) {
-  #   if (!file.exists(fls_yrs[j])) {
-  #     rst_yr <- rst_rcl[[which(ids == unique(ids)[j])]]
-  #     calc(rst_yr, fun = function(x) {
-  #       sum(x, na.rm = TRUE) / length(x)
-  #     }, filename = fls_yrs[j], format = "GTiff", overwrite = TRUE)
-  #     rm(rst_yr)
-  #   }
-  # }
-  # 
-  # rst_frq <- stack(fls_yrs)
-  
-})
+  ## reclassify layers
+  rst <- stack(fls)
+  reclassify(rst, rcl, include.lowest = TRUE, right = FALSE, filename = fls_rcl)
+}
 
 
 ### combined product -----
@@ -131,7 +80,7 @@ dir_cmb <- paste0(dir_dat, "/MCD14A1.006")
 if (!dir.exists(dir_cmb)) dir.create(dir_cmb)
 
 ## layer dates
-lst_dts <- foreach(product = c("MOD14A1.006", "MYD14A1.006"), i = 1:2) %do% {
+lst_dts <- foreach(product = names(tfs), i = 1:2) %dopar% {
                      
   # list available .hdf files                   
   dir_hdf <- paste0(getOption("MODIS_localArcPath"), "/MODIS/", product)
@@ -139,9 +88,7 @@ lst_dts <- foreach(product = c("MOD14A1.006", "MYD14A1.006"), i = 1:2) %do% {
                         recursive = TRUE)
   
   # extract corresponding dates
-  dts <- fireDates(fls_hdf)
-  dts <- unlist(dts)
-
+  dts <- unlist(fireDates(fls_hdf))
   if (length(dts) != nlayers(lst_prd[[i]]))
     stop("Number of layers and dates must be the same.\n")
   
