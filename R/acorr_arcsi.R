@@ -42,8 +42,8 @@ jnk <- sapply(c("getInfo", "rapid_qc", "weightedAverage", "kea2tif",
 ### http://rsgislib.org/arcsi/scripts.html#arcsi-py) -----
 
 ## valid arcsi values for aot, water content
-# aod_vld <- c(0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.75, 0.95)
-# wct_vld <- c(0.5, 1:6, 8:9)
+aod_vld <- c(0.0, 0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.75, 0.95)
+wct_vld <- c(0.5, 1:6, 8:9)
 
 ## directions for adjacent pixels
 adj <- matrix(rep(1, 25), ncol = 5); adj[3, 3] <- 0
@@ -80,7 +80,7 @@ dms <- lapply(unique(cid), function(h) {
 }); names(dms) <- unique(cid)
 
 ## loop over scenes
-for (h in 1:length(mtd)) {
+for (h in 2:length(mtd)) {
   
   ## status message
   cat("Image", raw[h], "is in, start processing.\n")
@@ -94,19 +94,19 @@ for (h in 1:length(mtd)) {
   #   shw <- rapid_shadows(bds, adj, limit = 0.2, filename = fns)
   # }
   
-  ## custom cloud mask (https://github.com/CONABIO/rapideye-cloud-detection)
-  cmd <- paste("cd /home/fdetsch/repo/rapideye-cloud-detection/;", 
-               "docker run -i -v", 
-               paste0(getwd(), "/", raw[h], "/:/rapideye/"), 
-               "-v $(pwd):/data rapideye-clouds", 
-               "python main.py /rapideye/")
-
-  system(cmd)
-
-  # msk <- raster(list.files(raw[h], pattern = "cloud.tif$", full.names = TRUE))
-  
-  for (i in c("local.png$", "toa.tif$"))
-    jnk <- file.remove(list.files(raw[h], pattern = i, full.names = TRUE))
+  # ## custom cloud mask (https://github.com/CONABIO/rapideye-cloud-detection)
+  # cmd <- paste("cd /home/fdetsch/repo/rapideye-cloud-detection/;", 
+  #              "docker run -i -v", 
+  #              paste0(getwd(), "/", raw[h], "/:/rapideye/"), 
+  #              "-v $(pwd):/data rapideye-clouds", 
+  #              "python main.py /rapideye/")
+  # 
+  # system(cmd)
+  # 
+  # # msk <- raster(list.files(raw[h], pattern = "cloud.tif$", full.names = TRUE))
+  # 
+  # for (i in c("local.png$", "toa.tif$"))
+  #   jnk <- file.remove(list.files(raw[h], pattern = i, full.names = TRUE))
 
   # fnc <- gsub("cloud", "cloudfree", attr(msk@file, "name"))
   # cld <- overlay(brick(bds), msk, fun = function(x, y) {
@@ -138,7 +138,7 @@ for (h in 1:length(mtd)) {
   prj <- projectExtent(dem, crs = "+init=epsg:4326")
   pry <- as(extent(prj), "SpatialPolygons")
   proj4string(pry) <- proj4string(dem)
-  atm <- sapply(c("Aerosol_Optical_Depth", "Water_Vapor", "Total_Ozone"), 
+  atm <- sapply(c("Aerosol_Optical_Depth_Land_Ocean", "Water_Vapor", "Total_Ozone"), 
                 function(z) {
 
     mod_all <- list.files("modis", full.names = TRUE, pattern = paste0(z, ".tif$"), 
@@ -159,7 +159,7 @@ for (h in 1:length(mtd)) {
       if (inherits(tmp, "try-error")) return(NA) else return(tmp)
     })
     
-    if (z == "Aerosol_Optical_Depth") {
+    if (z == "Aerosol_Optical_Depth_Land_Ocean") {
       out <- mean(val, na.rm = TRUE)
     } else {
       dfs <- abs(difftime(tms[[h]], getSwathDateTime(mod_dts)))
@@ -177,11 +177,18 @@ for (h in 1:length(mtd)) {
       }), na.rm = TRUE)
     }
 
-    if (z == "Total_Ozone") out <- out / 1000
+    # out <- if (z == "Aerosol_Optical_Depth_Land_Ocean") {
+    #   aod_vld[which.min(abs(out - aod_vld))]
+    # } else if (z == "Water_Vapor") {
+    #   wct_vld[which.min(abs(out - wct_vld))]
+    # } else {
+    #   out / 1000
+    # }
+    
+    if (z == "Total_Ozone")
+      out <- out / 1000
+    
     return(round(out, digits = 2L))
-  
-    # aod <- if (is.na(aod)) .01 else aod_vld[which.min(abs(aod - aod_vld))]
-    # wct <- if (is.na(wct)) .01 else wct_vld[which.min(abs(wct - wct_vld))]
   })
   
   ## apply atmospheric correction
@@ -194,6 +201,9 @@ for (h in 1:length(mtd)) {
 
   system(cmd)
 
+  kea <- list.files("arcsidata/Outputs", full.names = TRUE)
+  jnk <- file.remove(kea[-grep("srefdem.kea", kea)])
+  
   # tfs <- kea2tif("arcsidata/Outputs", overwrite = FALSE, keep_kea = TRUE)
   # fno <- attr(tfs@layers[[1]]@file, "name")
   # 
