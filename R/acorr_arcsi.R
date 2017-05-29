@@ -80,7 +80,7 @@ dms <- lapply(unique(cid), function(h) {
 }); names(dms) <- unique(cid)
 
 ## loop over scenes
-for (h in 2:length(mtd)) {
+for (h in 1:length(mtd)) {
   
   ## status message
   cat("Image", raw[h], "is in, start processing.\n")

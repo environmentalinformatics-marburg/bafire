@@ -2,10 +2,11 @@
 setwd("/media/XChange/bale/DigitalGlobeFoundation/ImageryGrant")
 
 library(RStoolbox)
+library(rapidr)
 
 ## functions
 source("~/repo/bafire/R/kea2tif.R")
-source("~/repo/bafire/R/getOrder.R")
+source("~/repo/bafire/R/getInfo.R")
 
 library(raster)
 fls <- list.files("arcsidata/Raw/055514033020_01_P001_PAN", 
@@ -87,41 +88,59 @@ rpd_tfs <- rpd_tfs[srt]; rpd_spy <- rpd_spy[srt]; rpd_fls <- rpd_fls[srt]
 lcl <- Sys.getlocale(category = "LC_TIME")
 gimms:::setLocale()
 
-## import and loop over available worldview-1 files
-fls <- list.files("arcsidata/Raw/055514033020_01_P001_PAN", 
-                  pattern = ".TIF$", full.names = TRUE)
+## import and loop over available worldview-1 scenes
+drs <- list.dirs("arcsidata/Raw", recursive = FALSE)
 
-for (h in fls) {
+for (g in drs) {
   
-  ## extract worldview-1 dates
-  wv1_dts <- as.Date(tolower(substr(basename(h), 1, 7)), format = "%y%b%d")
-
-  ## identify rapideye tiles fully covering current worldview image
-  rst <- raster(h); ext <- extent(rst)
-  ext <- as(ext, "SpatialPolygons")
-  proj4string(ext) <- CRS("+init=epsg:32637")
+  ## import and loop over files per worldview-1 scene
+  fls <- list.files(g, pattern = ".TIF$", full.names = TRUE)
   
-  ids_cov <- sapply(rpd_spy, function(i) rgeos::gCovers(i, ext))
-  rpd_cdt <- if (all(!ids_cov)) {
-    ids_int <- which(sapply(rpd_spy, function(i) rgeos::gIntersects(i, ext)))
-    rpd_int <- split(ids_int, as.character(nfo_raw[ids_int, "tid"]))
+  for (h in fls) {
     
-    Reduce(function(...) mosaic(..., fun = mean), 
-           lapply(rpd_int, function(i) {
-             ids_cdt <- which.min(abs(wv1_dts - rpd_dts[i]))
-             rpd_tfs[[match(names(ids_cdt), nfo_raw$file)]]
-           }))
-  } else {
+    ## status message
+    cat("File", basename(h), "is in, start processing...\n")
     
-    ## select temporally closest rapideye image and perform pansharpening
-    ids_cdt <- which.min(abs(wv1_dts - rpd_dts[ids_cov]))
-    rpd_tfs[[match(names(ids_cdt), nfo_raw$file)]]
+    fls_out <- paste0("rapideye/panSharpen/", gsub("P2AS", "RE3A", basename(h)))
+    if (file.exists(gsub(".TIF$", ".tif", fls_out))) next
+    
+    ## extract worldview-1 dates
+    wv1_dts <- as.Date(tolower(substr(basename(h), 1, 7)), format = "%y%b%d")
+    
+    ## identify rapideye tiles fully covering current worldview image
+    rst <- raster(h); ext <- extent(rst)
+    ext <- as(ext, "SpatialPolygons")
+    proj4string(ext) <- CRS("+init=epsg:32637")
+    
+    ids_cov <- sapply(rpd_spy, function(i) rgeos::gCovers(i, ext))
+    rpd_cdt <- if (all(!ids_cov)) {
+      ids_int <- which(sapply(rpd_spy, function(i) rgeos::gIntersects(i, ext)))
+      rpd_int <- split(ids_int, as.character(nfo_raw[ids_int, "tid"]))
+      
+      if (length(rpd_int) > 2)
+        stop("More than two intersecting RapidEye tiles identified.\n")
+      
+      rpd_rst <- lapply(rpd_int, function(i) {
+        ids_cdt <- which.min(abs(wv1_dts - rpd_dts[i]))
+        rpd_tfs[[match(names(ids_cdt), nfo_raw$file)]]
+      })
+      
+      crp1 <- crop(rpd_rst[[1]], ext, snap = "out"); crp2 <- crop(rpd_rst[[2]], ext, snap = "out")
+      hsm2 <- RStoolbox::histMatch(crp2, crp1)
+      mosaic(crp1, hsm2, fun = mean)
+      
+    } else {
+      
+      ## select temporally closest rapideye image and perform pansharpening
+      ids_cdt <- which.min(abs(wv1_dts - rpd_dts[ids_cov]))
+      tfs <- rpd_tfs[[match(names(ids_cdt), nfo_raw$file)]]
+      crop(tfs, ext, snap = "out")
+    }
+    
+    rpd_psh <- panSharpen(rpd_cdt, rst, r = 3, g = 2, b = 1)
+    writeRaster(rpd_psh, fls_out)
   }
-  
-  rpd_crp <- crop(rpd_cdt, ext, snap = "out")
-  rpd_psh <- panSharpen(rpd_crp, rst, r = 3, g = 2, b = 1)
-  writeRaster(rpd_psh, 
-              paste0("rapideye/panSharpen/", gsub("P2AS", "RE3A", basename(h))))
 }
 
 gimms:::setLocale(reset = TRUE, locale = lcl)
+  
