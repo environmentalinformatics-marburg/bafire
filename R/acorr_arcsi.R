@@ -21,21 +21,29 @@ jnk <- sapply(c("getInfo", "rapid_qc", "weightedAverage", "kea2tif",
   source(paste0(bfr, "R/", i, ".R"))
 })
 
+## parallelization
+cl <- makePSOCKcluster(detectCores() - 1L)
+clusterExport(cl, "getOrder")
 
-# ### extraction -----
-# 
-# ## list available file containers
-# ctn <- list.files("rapideye", pattern = "^getProduct.*streaming=True$",
-#                   full.names = TRUE)
-# 
-# ## loop over containers and extract required files
-# lst <- parLapply(cl, ctn, function(i) {
-#   fls <- unzip(i, list = TRUE)$Name
-#   ord <- unique(getOrder(fls))
-#   ids <- sapply(c(paste0(c(ord, "udm"), ".tif$"), "metadata.xml"), 
-#                 function(j) grep(j, fls))
-#   unzip(i, files = fls[ids], exdir = dirname(i), overwrite = FALSE)
-# })
+
+### extraction -----
+
+## list available file containers
+ctn <- list.files("rapideye", pattern = "^getProduct.*streaming=True$",
+                  full.names = TRUE)
+
+## loop over containers and extract required files
+if (length(ctn) > 0)
+  lst <- parLapply(cl, ctn, function(i) {
+    fls <- unzip(i, list = TRUE)$Name
+    ord <- unique(getOrder(fls))
+    ids <- sapply(c(paste0(c(ord, "udm"), ".tif$"), "metadata.xml"),
+                  function(j) grep(j, fls))
+    unzip(i, files = fls[ids], exdir = dirname(i), overwrite = FALSE)
+  })
+
+## close parallel backend
+stopCluster(cl)
 
 
 ### atmospheric correction (see 
@@ -49,7 +57,7 @@ wct_vld <- c(0.5, 1:6, 8:9)
 adj <- matrix(rep(1, 25), ncol = 5); adj[3, 3] <- 0
 
 ## inputs (ie metadata files)
-raw <- list.dirs("arcsidata/Raw", recursive = FALSE)
+raw <- dir("arcsidata/Raw", full.names = TRUE)
 ord <- getOrder(raw)
 inp <- paste0("arcsidata/Inputs/", basename(raw))
 mtd <- sapply(raw, function(i) {
@@ -84,36 +92,36 @@ for (h in 1:length(mtd)) {
   
   ## status message
   cat("Image", raw[h], "is in, start processing.\n")
-
+  
   ## custom shadow mask
   bds <- list.files(raw[h], paste0(ord[h], ".tif$"), full.names = TRUE)
   udm <- raster(list.files(raw[h], pattern = "udm.tif$", full.names = TRUE))
-
+  
   # if (any(udm[] != 0)) {
   #   fns <- gsub(".tif$", "_shadowfree.tif", bds)
   #   shw <- rapid_shadows(bds, adj, limit = 0.2, filename = fns)
   # }
   
   # ## custom cloud mask (https://github.com/CONABIO/rapideye-cloud-detection)
-  # cmd <- paste("cd /home/fdetsch/repo/rapideye-cloud-detection/;", 
-  #              "docker run -i -v", 
-  #              paste0(getwd(), "/", raw[h], "/:/rapideye/"), 
-  #              "-v $(pwd):/data rapideye-clouds", 
+  # cmd <- paste("cd /home/fdetsch/repo/rapideye-cloud-detection/;",
+  #              "docker run -i -v",
+  #              paste0(getwd(), "/", raw[h], "/:/rapideye/"),
+  #              "-v $(pwd):/data rapideye-clouds",
   #              "python main.py /rapideye/")
   # 
   # system(cmd)
-  # 
-  # # msk <- raster(list.files(raw[h], pattern = "cloud.tif$", full.names = TRUE))
-  # 
+  
+  # msk <- raster(list.files(raw[h], pattern = "cloud.tif$", full.names = TRUE))
+  
   # for (i in c("local.png$", "toa.tif$"))
   #   jnk <- file.remove(list.files(raw[h], pattern = i, full.names = TRUE))
-
+  
   # fnc <- gsub("cloud", "cloudfree", attr(msk@file, "name"))
   # cld <- overlay(brick(bds), msk, fun = function(x, y) {
   #   x[y[] == 4] <- NA
   #   return(x)
   # }, filename = fnc, overwrite = TRUE)
-
+  
   # ## built-in unusable data mask
   # if (!dir.exists(inp[h])) dir.create(inp[h])
   # fnu <- paste(inp[h], basename(bds), sep = "/")
@@ -132,7 +140,7 @@ for (h in 1:length(mtd)) {
   
   ## digital elevation model
   dem <- dms[[grep(cid[h], names(dms))]]
-
+  
   ## aerosol optical depth (aod; which modis overpass is closer to rapideye?), 
   ## atmospheric water (wct) and ozone content (oct)
   prj <- projectExtent(dem, crs = "+init=epsg:4326")
@@ -140,7 +148,7 @@ for (h in 1:length(mtd)) {
   proj4string(pry) <- proj4string(dem)
   atm <- sapply(c("Aerosol_Optical_Depth_Land_Ocean", "Water_Vapor", "Total_Ozone"), 
                 function(z) {
-
+                  
     mod_all <- list.files("modis", full.names = TRUE, pattern = paste0(z, ".tif$"), 
                           recursive = TRUE)
     isc <- sapply(mod_all, function(w) {
@@ -152,7 +160,7 @@ for (h in 1:length(mtd)) {
     mod_all <- mod_all[isc]
     
     mod_dts <- mod_all[grep(format(dts[[h]], "%Y%j"), mod_all)]
-  
+    
     
     val <- sapply(mod_dts, function(i) {
       tmp <- try(weightedAverage(i, prj, snap = "out"), silent = TRUE)
@@ -176,7 +184,7 @@ for (h in 1:length(mtd)) {
         weightedAverage(i, prj, snap = "out")
       }), na.rm = TRUE)
     }
-
+    
     # out <- if (z == "Aerosol_Optical_Depth_Land_Ocean") {
     #   aod_vld[which.min(abs(out - aod_vld))]
     # } else if (z == "Water_Vapor") {
@@ -198,9 +206,9 @@ for (h in 1:length(mtd)) {
                "--atmoswater", atm[2], "--atmosozone", atm[3],
                "--aot", atm[1], "--dem", attr(dem@file, "name"),
                "-i", mtd[h], "-t arcsidata/Temp -o arcsidata/Outputs")
-
+  
   system(cmd)
-
+  
   kea <- list.files("arcsidata/Outputs", full.names = TRUE)
   jnk <- file.remove(kea[-grep("srefdem.kea", kea)])
   
@@ -220,3 +228,6 @@ for (h in 1:length(mtd)) {
   # 
   # writeRaster(tfs, fno, overwrite = TRUE)
 }
+
+tfs <- kea2tif("arcsidata/Outputs", pattern = "3742219.*srefdem.kea$", 
+               overwrite = FALSE, keep_kea = TRUE)
