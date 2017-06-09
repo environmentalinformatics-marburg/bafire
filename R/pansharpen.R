@@ -1,15 +1,19 @@
 ## working directory
-setwd("/media/XChange/bale/DigitalGlobeFoundation/ImageryGrant")
+# setwd("/media/XChange/bale/DigitalGlobeFoundation/ImageryGrant")
+setwd("/media/fdetsch/data/bale/DigitalGlobeFoundation/ImageryGrant/055514033020_01")
 
 library(RStoolbox)
 library(rapidr)
+library(raster)
+library(Rsenal)
 
 ## functions
 source("~/repo/bafire/R/kea2tif.R")
 source("~/repo/bafire/R/getInfo.R")
 
-library(raster)
-fls <- list.files("arcsidata/Raw/055514033020_01_P001_PAN", 
+# fls <- list.files("arcsidata/Raw/055514033020_01_P001_PAN", 
+#                   pattern = ".TIF$", full.names = TRUE)
+fls <- list.files("055514033020_01_P001_PAN", 
                   pattern = ".TIF$", full.names = TRUE)
 ext <- lapply(fls, function(i) {
   extent(raster(i))
@@ -19,17 +23,19 @@ ref <- extent(c(min(sapply(ext, xmin)), max(sapply(ext, xmax)),
                 min(sapply(ext, ymin)), max(sapply(ext, ymax))))
 ref <- as(ref, "SpatialPolygons")
 proj4string(ref) <- CRS("+init=epsg:32637")
-ref <- spTransform(ref, CRS("+init=epsg:4326"))
 
-library(Rsenal)
-rgb <- kiliAerial(template = ref, projection = "+init=epsg:32637", 
-                  type = "bing", minNumTiles = 60L)
-rgb <- writeRaster(rgb, paste0("rgb/", unique(basename(dirname(fls))), ".tif"))
+# rgb <- kiliAerial(template = ref, projection = "+init=epsg:32637", 
+#                   type = "bing", minNumTiles = 60L)
+# rgb <- writeRaster(rgb, paste0("rgb/", unique(basename(dirname(fls))), ".tif"))
 
-rst <- raster(fls[4])
+rgb <- brick("../../../aerials/dsm/bale-0_utm.tif")
+
+rst <- raster(fls[1])
 crp <- crop(rgb, rst, snap = "out")
 psh <- panSharpen(crp, rst, r = 1, g = 2, b = 3)
 
+ptt <- sapply(strsplit(basename(fls[1]), "-"), "[[", 2)
+writeRaster(psh, ...)
 ext2 <- extent(rst)
 ext2 <- as(ext2, "SpatialPolygons")
 proj4string(ext2) <- CRS("+init=epsg:32637")
