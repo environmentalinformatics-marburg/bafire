@@ -1,41 +1,45 @@
 ## working directory
-# setwd("/media/XChange/bale/DigitalGlobeFoundation/ImageryGrant")
-setwd("/media/fdetsch/data/bale/DigitalGlobeFoundation/ImageryGrant/055514033020_01")
+setwd("/media/fdetsch/XChange/bale/DigitalGlobeFoundation/ImageryGrant")
+# setwd("/media/fdetsch/data/bale/DigitalGlobeFoundation/ImageryGrant/055514033020_01")
 
-library(RStoolbox)
-library(rapidr)
-library(raster)
-library(Rsenal)
+lib <- c("RStoolbox", "rapidr", "raster", "Rsenal")
+Orcs::loadPkgs(lib)
 
 ## functions
 source("~/repo/bafire/R/kea2tif.R")
 source("~/repo/bafire/R/getInfo.R")
 
-# fls <- list.files("arcsidata/Raw/055514033020_01_P001_PAN", 
-#                   pattern = ".TIF$", full.names = TRUE)
-fls <- list.files("055514033020_01_P001_PAN", 
-                  pattern = ".TIF$", full.names = TRUE)
-ext <- lapply(fls, function(i) {
-  extent(raster(i))
-})
+## parallelization
+library(parallel)
+cl <- makePSOCKcluster(detectCores() - 1)
 
-ref <- extent(c(min(sapply(ext, xmin)), max(sapply(ext, xmax)), 
-                min(sapply(ext, ymin)), max(sapply(ext, ymax))))
-ref <- as(ref, "SpatialPolygons")
-proj4string(ref) <- CRS("+init=epsg:32637")
 
-# rgb <- kiliAerial(template = ref, projection = "+init=epsg:32637", 
-#                   type = "bing", minNumTiles = 60L)
-# rgb <- writeRaster(rgb, paste0("rgb/", unique(basename(dirname(fls))), ".tif"))
+rgb <- brick("../../bale-0_utm.tif")
+ref <- as(extent(rgb), "SpatialPolygons"); proj4string(ref) <- projection(rgb)
+drs <- dir("arcsidata/Raw", full.names = TRUE)
 
-rgb <- brick("../../../aerials/dsm/bale-0_utm.tif")
+for (i in drs) {
+  fls <- list.files(i, pattern = ".TIF$", full.names = TRUE)
+  
+  parLapply(cl, fls, function(j) {
+    rst <- raster(j)
+    spy <- as(extent(rst), "SpatialPolygons")
+    proj4string(spy) <- projection(rst)
+    
+    crp <- crop(rgb, rst, snap = "out")
+    if (!rgeos::gCovers(ref, spy))
+      rst <- crop(rst, crp, snap = "out")
+    
+    psh <- panSharpen(crp, rst, r = 1, g = 2, b = 3)
+  })
 
-rst <- raster(fls[1])
-crp <- crop(rgb, rst, snap = "out")
-psh <- panSharpen(crp, rst, r = 1, g = 2, b = 3)
+  
+  ptt <- sapply(strsplit(basename(fls[1]), "-"), "[[", 2)
+  writeRaster(psh, ...)
+  
+}
 
-ptt <- sapply(strsplit(basename(fls[1]), "-"), "[[", 2)
-writeRaster(psh, ...)
+
 ext2 <- extent(rst)
 ext2 <- as(ext2, "SpatialPolygons")
 proj4string(ext2) <- CRS("+init=epsg:32637")
@@ -149,4 +153,3 @@ for (g in drs) {
 }
 
 gimms:::setLocale(reset = TRUE, locale = lcl)
-  
