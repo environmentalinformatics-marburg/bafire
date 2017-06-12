@@ -1,8 +1,8 @@
 ## working directory
-setwd("/media/fdetsch/XChange/bale/DigitalGlobeFoundation/ImageryGrant")
-# setwd("/media/fdetsch/data/bale/DigitalGlobeFoundation/ImageryGrant/055514033020_01")
+# setwd("/media/fdetsch/XChange/bale/DigitalGlobeFoundation/ImageryGrant")
+setwd("/media/fdetsch/data/bale/DigitalGlobeFoundation/ImageryGrant")
 
-lib <- c("RStoolbox", "rapidr", "raster", "Rsenal")
+lib <- c("RStoolbox", "rapidr", "raster", "Rsenal", "plotrix")
 Orcs::loadPkgs(lib)
 
 ## functions
@@ -12,31 +12,36 @@ source("~/repo/bafire/R/getInfo.R")
 ## parallelization
 library(parallel)
 cl <- makePSOCKcluster(detectCores() - 1)
+clusterExport(cl, "lib"); clusterEvalQ(cl, Orcs::loadPkgs(lib))
 
-
-rgb <- brick("../../bale-0_utm.tif")
+rgb <- brick("../../aerials/dsm/bale-0_utm.tif")
 ref <- as(extent(rgb), "SpatialPolygons"); proj4string(ref) <- projection(rgb)
-drs <- dir("arcsidata/Raw", full.names = TRUE)
+drs <- dir("055514033020_01", full.names = TRUE)
+drs <- drs[grep("PAN$", drs)]
 
 for (i in drs) {
   fls <- list.files(i, pattern = ".TIF$", full.names = TRUE)
   
   parLapply(cl, fls, function(j) {
-    rst <- raster(j)
-    spy <- as(extent(rst), "SpatialPolygons")
-    proj4string(spy) <- projection(rst)
-    
-    crp <- crop(rgb, rst, snap = "out")
-    if (!rgeos::gCovers(ref, spy))
-      rst <- crop(rst, crp, snap = "out")
-    
-    psh <- panSharpen(crp, rst, r = 1, g = 2, b = 3)
-  })
+    ptt <- substr(strsplit(basename(j), "-")[[1]][[2]], 1, 4)
+    nms <- paste0("../../aerials/dsm/psh/", gsub(ptt, "PANS", basename(j)))
+    nms <- gsub(".TIF$", ".tif", nms)
 
-  
-  ptt <- sapply(strsplit(basename(fls[1]), "-"), "[[", 2)
-  writeRaster(psh, ...)
-  
+    if (file.exists(nms)) {
+      brick(nms)
+    } else {
+      rst <- raster(j); rst[rst[] == 0] <- NA
+      spy <- as(extent(rst), "SpatialPolygons")
+      proj4string(spy) <- projection(rst)
+      
+      crp <- crop(rgb, rst, snap = "out")
+      if (!rgeos::gCovers(ref, spy))
+        rst <- crop(rst, crp, snap = "out")
+      
+      psh <- panSharpen(crp, rst, r = 1, g = 2, b = 3)
+      writeRaster(psh, filename = nms, datatype = "INT2U")
+    }
+  })
 }
 
 
