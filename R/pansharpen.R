@@ -1,28 +1,40 @@
-## working directory
-# setwd("/media/fdetsch/XChange/bale/DigitalGlobeFoundation/ImageryGrant")
-setwd("/media/fdetsch/data/bale/DigitalGlobeFoundation/ImageryGrant")
+### environmental stuff -----
 
+## clear workspace
+rm(list = ls(all = TRUE))
+
+## working directory
+setwd("/media/fdetsch/XChange/bale/DigitalGlobeFoundation/ImageryGrant")
+# setwd("/media/fdetsch/data/bale/DigitalGlobeFoundation/ImageryGrant")
+
+## packages
 lib <- c("RStoolbox", "rapidr", "raster", "Rsenal", "plotrix")
 Orcs::loadPkgs(lib)
 
 ## functions
-source("~/repo/bafire/R/kea2tif.R")
-source("~/repo/bafire/R/getInfo.R")
+source("/media/permanent/repo/bafire/R/kea2tif.R")
+source("/media/permanent/repo/bafire/R/getInfo.R")
 
 ## parallelization
 library(parallel)
 cl <- makePSOCKcluster(detectCores() - 1)
-clusterExport(cl, "lib"); clusterEvalQ(cl, Orcs::loadPkgs(lib))
+clusterExport(cl, "lib"); jnk <- clusterEvalQ(cl, Orcs::loadPkgs(lib))
+
+
+### google maps -----
 
 rgb <- brick("../../aerials/dsm/bale-0_utm.tif")
 ref <- as(extent(rgb), "SpatialPolygons"); proj4string(ref) <- projection(rgb)
-drs <- dir("055514033020_01", full.names = TRUE)
+clusterExport(cl, c("rgb", "ref"))
+              
+drs <- dir("arcsidata/Raw", full.names = TRUE)
 drs <- drs[grep("PAN$", drs)]
 
 for (i in drs) {
   fls <- list.files(i, pattern = ".TIF$", full.names = TRUE)
   
-  parLapply(cl, fls, function(j) {
+  for (j in fls) {
+    cat("File", j, "is in, start processing...\n")
     ptt <- substr(strsplit(basename(j), "-")[[1]][[2]], 1, 4)
     nms <- paste0("../../aerials/dsm/psh/", gsub(ptt, "PANS", basename(j)))
     nms <- gsub(".TIF$", ".tif", nms)
@@ -41,20 +53,8 @@ for (i in drs) {
       psh <- panSharpen(crp, rst, r = 1, g = 2, b = 3)
       writeRaster(psh, filename = nms, datatype = "INT2U")
     }
-  })
+  }
 }
-
-
-ext2 <- extent(rst)
-ext2 <- as(ext2, "SpatialPolygons")
-proj4string(ext2) <- CRS("+init=epsg:32637")
-ext2 <- spTransform(ext2, CRS("+init=epsg:4326"))
-dsm <- kiliAerial(template = ext2, projection = "+init=epsg:32637", 
-                  type = "google")
-dsm[dsm[] < 0] <- NA
-dsm <- writeRaster(dsm, paste0("dsm/", unique(basename(dirname(fls))), ".tif"))
-
-psh2 <- panSharpen(dsm, rst, r = 1, g = 2, b = 3)
 
 
 ### rapideye -----
@@ -69,7 +69,7 @@ rpd_spy <- lapply(rpd_tfs, function(i) {
 })
 
 ## extract rapideye dates
-raw <- list.dirs("/media/fdetsch/data/bale/arcsidata/Raw", recursive = FALSE)
+raw <- list.dirs("rapideye/Raw", recursive = FALSE)
 mtd <- sapply(raw, function(i) {
   list.files(i, pattern = ".xml$", full.names = TRUE)
 })
@@ -140,9 +140,13 @@ for (g in drs) {
         rpd_tfs[[match(names(ids_cdt), nfo_raw$file)]]
       })
       
-      crp1 <- crop(rpd_rst[[1]], ext, snap = "out"); crp2 <- crop(rpd_rst[[2]], ext, snap = "out")
-      hsm2 <- RStoolbox::histMatch(crp2, crp1)
-      mosaic(crp1, hsm2, fun = mean)
+      crp1 <- crop(rpd_rst[[1]], ext, snap = "out")
+      crp2 <- crop(rpd_rst[[2]], ext, snap = "out")
+      hsm <- RStoolbox::histMatch(crp2, crp1, nSamples = 1e5)
+      # hsm2 <- stack(lapply(1:nlayers(crp1), function(i) {
+      #   satellite::calcHistMatch(crp2[[i]], crp1[[i]])
+      # }))
+      merge(crp1, hsm)
       
     } else {
       
