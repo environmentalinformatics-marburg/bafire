@@ -1,9 +1,8 @@
 ### environmental stuff -----
 
 ## required packages and functions
-# devtools::install_github("MatMatt/MODIS", ref = "develop")
 lib <- c("MODIS", "doParallel", "rgdal")
-jnk <- sapply(lib, function(x) library(x, character.only = TRUE))
+Orcs::loadPkgs(lib)
 
 source("R/fireDates.R")
 
@@ -24,11 +23,11 @@ registerDoParallel(cl)
 ### data download -----
 
 ## download and extract data
-cll <- unique(unlist(getCollection("M*D14A1")))
+cll <- unique(unlist(getCollection("M*D14A1", forceCheck = TRUE)))
 if (length(cll) > 1L) stop("More than one unique collection found.\n")
 
 tfs <- runGdal("M*D14A1", extent = readRDS("inst/extdata/uniformExtent.rds"), 
-               job = "MCD14A1.006", end = as.Date("2017-04-22"))
+               collection = cll, SDSstring = "1110", job = "fire-1km-bale")
 
 
 ### preprocessing -----
