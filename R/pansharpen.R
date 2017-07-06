@@ -3,22 +3,21 @@
 ## clear workspace
 rm(list = ls(all = TRUE))
 
-## working directory
-setwd("/media/fdetsch/XChange/bale/DigitalGlobeFoundation/ImageryGrant")
-# setwd("/media/fdetsch/data/bale/DigitalGlobeFoundation/ImageryGrant")
-
 ## packages
 lib <- c("RStoolbox", "rapidr", "raster", "Rsenal", "plotrix")
 Orcs::loadPkgs(lib)
 
 ## functions
-source("/media/permanent/repo/bafire/R/kea2tif.R")
-source("/media/permanent/repo/bafire/R/getInfo.R")
+jnk <- sapply(c("R/kea2tif.R", "R/getInfo.R"), source)
 
 ## parallelization
 library(parallel)
 cl <- makePSOCKcluster(detectCores() - 1)
 clusterExport(cl, "lib"); jnk <- clusterEvalQ(cl, Orcs::loadPkgs(lib))
+
+## reset working directory
+Orcs::setwdOS(lin = "/media/fdetsch/XChange/", 
+              ext = "bale/DigitalGlobeFoundation/ImageryGrant")
 
 
 ### google maps -----
@@ -71,7 +70,7 @@ rpd_spy <- lapply(rpd_tfs, function(i) {
 ## extract rapideye dates
 raw <- list.dirs("rapideye/Raw", recursive = FALSE)
 mtd <- sapply(raw, function(i) {
-  list.files(i, pattern = ".xml$", full.names = TRUE)
+  list.files(i, pattern = "metadata.xml$", full.names = TRUE)
 })
 xml <- lapply(mtd, xml2::read_xml)
 rpd_dts <- do.call("c", lapply(xml, rapid_date))
@@ -140,24 +139,20 @@ for (g in drs) {
         rpd_tfs[[match(names(ids_cdt), nfo_raw$file)]]
       })
       
-      crp1 <- crop(rpd_rst[[1]], ext, snap = "out")
-      crp2 <- crop(rpd_rst[[2]], ext, snap = "out")
-      hsm <- RStoolbox::histMatch(crp2, crp1, nSamples = 1e5)
-      # hsm2 <- stack(lapply(1:nlayers(crp1), function(i) {
-      #   satellite::calcHistMatch(crp2[[i]], crp1[[i]])
-      # }))
-      merge(crp1, hsm)
-      
+      rpd_psh <- lapply(rpd_rst, function(i) {
+        crp <- crop(i, ext, snap = "out")
+        psh <- panSharpen(crp, crop(rst, crp), r = 3, g = 2, b = 1)
+
     } else {
       
       ## select temporally closest rapideye image and perform pansharpening
       ids_cdt <- which.min(abs(wv1_dts - rpd_dts[ids_cov]))
       tfs <- rpd_tfs[[match(names(ids_cdt), nfo_raw$file)]]
       crop(tfs, ext, snap = "out")
+      
+      rpd_psh <- panSharpen(rpd_cdt, rst, r = 3, g = 2, b = 1)
+      writeRaster(rpd_psh, fls_out)
     }
-    
-    rpd_psh <- panSharpen(rpd_cdt, rst, r = 3, g = 2, b = 1)
-    writeRaster(rpd_psh, fls_out)
   }
 }
 
