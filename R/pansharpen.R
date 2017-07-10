@@ -4,20 +4,20 @@
 rm(list = ls(all = TRUE))
 
 ## packages
-lib <- c("RStoolbox", "rapidr", "raster", "Rsenal", "plotrix")
+.libPaths(c("/media/sd19006/data/users/fdetsch/R-Server/R", .libPaths()))
+
+lib <- c("RStoolbox", "rapidr", "Rsenal", "plotrix")
 Orcs::loadPkgs(lib)
 
 ## functions
 jnk <- sapply(c("R/kea2tif.R", "R/getInfo.R"), source)
 
-## parallelization
-library(parallel)
-cl <- makePSOCKcluster(detectCores() - 1)
-clusterExport(cl, "lib"); jnk <- clusterEvalQ(cl, Orcs::loadPkgs(lib))
+## temporary raster folder
+rasterOptions(tmpdir = "../../tmp")
+jnk <- tmpDir()
 
 ## reset working directory
-Orcs::setwdOS(lin = "/media/fdetsch/XChange/", 
-              ext = "bale/DigitalGlobeFoundation/ImageryGrant")
+setwd("../../data/bale/DigitalGlobeFoundation/ImageryGrant")
 
 
 ### google maps -----
@@ -109,49 +109,68 @@ for (g in drs) {
   
   ## import and loop over files per worldview-1 scene
   fls <- list.files(g, pattern = ".TIF$", full.names = TRUE)
-  
+
   for (h in fls) {
     
     ## status message
     cat("File", basename(h), "is in, start processing...\n")
     
-    fls_out <- paste0("rapideye/panSharpen/", gsub("P2AS", "RE3A", basename(h)))
-    if (file.exists(gsub(".TIF$", ".tif", fls_out))) next
+    # fls_out <- paste0("rapideye/panSharpen/", gsub("P2AS", "RE3A", basename(h)))
+    # if (file.exists(gsub(".TIF$", ".tif", fls_out))) next
     
     ## extract worldview-1 dates
     wv1_dts <- as.Date(tolower(substr(basename(h), 1, 7)), format = "%y%b%d")
     
     ## identify rapideye tiles fully covering current worldview image
-    rst <- raster(h); ext <- extent(rst)
+    rst <- raster(h); msk <- calc(rst, function(x) x == 0)
+    rst <- overlay(rst, msk, fun = function(x, y) {
+      x[y == 1] <- NA
+      return(x)
+    }); rst <- trim(rst)
+    ext <- extent(rst)
     ext <- as(ext, "SpatialPolygons")
     proj4string(ext) <- CRS("+init=epsg:32637")
     
     ids_cov <- sapply(rpd_spy, function(i) rgeos::gCovers(i, ext))
+
     rpd_cdt <- if (all(!ids_cov)) {
       ids_int <- which(sapply(rpd_spy, function(i) rgeos::gIntersects(i, ext)))
       rpd_int <- split(ids_int, as.character(nfo_raw[ids_int, "tid"]))
       
-      if (length(rpd_int) > 2)
-        stop("More than two intersecting RapidEye tiles identified.\n")
+      fls_out <- paste0("rapideye/panSharpen/", 
+                        gsub("P2AS", "RE3A", Orcs::pureBasename(h)))
+      fls_out <- paste0(paste(fls_out, seq(length(rpd_int)), sep = "-"), ".tif")
       
       rpd_rst <- lapply(rpd_int, function(i) {
         ids_cdt <- which.min(abs(wv1_dts - rpd_dts[i]))
         rpd_tfs[[match(names(ids_cdt), nfo_raw$file)]]
       })
       
-      rpd_psh <- lapply(rpd_rst, function(i) {
-        crp <- crop(i, ext, snap = "out")
-        psh <- panSharpen(crp, crop(rst, crp), r = 3, g = 2, b = 1)
-
+      rpd_psh <- lapply(seq(length(rpd_rst)), function(i) {
+        if (file.exists(fls_out[i])) {
+          brick(fls_out[i])
+        } else {
+          rpd_crp <- crop(rpd_rst[[i]], ext, snap = "out")
+          rst_crp <- crop(rst, rpd_crp, snap = "out")
+          psh <- panSharpen(rpd_crp, rst_crp, r = 3, g = 2, b = 1)
+          writeRaster(psh, fls_out[i], datatype = "INT2S")
+        }
+      })
     } else {
       
       ## select temporally closest rapideye image and perform pansharpening
       ids_cdt <- which.min(abs(wv1_dts - rpd_dts[ids_cov]))
       tfs <- rpd_tfs[[match(names(ids_cdt), nfo_raw$file)]]
-      crop(tfs, ext, snap = "out")
-      
-      rpd_psh <- panSharpen(rpd_cdt, rst, r = 3, g = 2, b = 1)
-      writeRaster(rpd_psh, fls_out)
+
+      fls_out <- paste0("rapideye/panSharpen/", gsub("P2AS", "RE3A", basename(h)))
+      fls_out <- gsub(".TIF$", ".tif", fls_out)
+      if (file.exists(fls_out)) {
+        brick(fls_out)
+      } else {
+        rpd_crp <- crop(tfs, ext, snap = "out")
+        psh <- panSharpen(rpd_crp, rst, r = 3, g = 2, b = 1)
+        writeRaster(psh, fls_out, datatype = "INT2S")
+      }
     }
   }
 }
