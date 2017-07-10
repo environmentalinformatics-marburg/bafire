@@ -155,5 +155,18 @@ rst_agg <- foreach(i = 1:nlayers(rst_agg), .combine = "stack") %do%
   writeRaster(rst_agg[[i]], filename = fls_agg[i], format = "GTiff", 
               overwrite = TRUE)
 
+## fire frequency
+rst_frq <- rst_agg / as.integer(table(indices))
+
+dir_frq <- paste0(dir_cmb, "/frq1yr")
+if (!dir.exists(dir_frq)) dir.create(dir_frq)
+
+fls_frq <- paste0(unique(substr(names(rst_cmb), 1, 13)), ".FireMask.tif")
+fls_frq <- paste(dir_frq, fls_frq, sep = "/")
+
+rst_frq <- foreach(i = 1:nlayers(rst_frq), .combine = "stack") %do%
+  writeRaster(rst_frq[[i]], filename = fls_frq[i], format = "GTiff", 
+              overwrite = TRUE)
+
 ## deregister parallel backend
 stopCluster(cl)
