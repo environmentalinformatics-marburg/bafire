@@ -6,9 +6,6 @@ visDEM <- function(dem, zlevs.conts = seq(1000, 5500, 500),
   library(raster)
   library(latticeExtra)
   
-  ## functions
-  source("R/panel.smoothconts.R")
-  
   ## import dem (if necessary)
   if (is.character(dem)) {
     rst_dem <- raster::raster(dem)

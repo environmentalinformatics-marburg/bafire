@@ -1,5 +1,9 @@
 ### environment -----
 
+## working directory
+repo = getwd()
+setwd("/media/fdetsch/XChange/bale")
+
 ## packages and functions
 # devtools::install_github("environmentalinformatics-marburg/chirps")
 library(heavyRain)
@@ -8,14 +12,15 @@ library(Rsenal)
 library(RColorBrewer)
 library(grid)
 
-source("R/visDEM.R")
+source(file.path(repo, "R/visDEM.R"))
+source(file.path(repo, "R/panel.smoothconts.R"))
 
 
 ### process -----
 
 odr = "/media/fdetsch/XChange/bale/chirps/africa_monthly"
-fls <- getCHIRPS("africa", "tifs", "monthly", cores = 3L, dsn = odr)
-tfs <- extractChirps(fls, dsn = file.path(odr, "tfs"), cores = 3L)
+# fls <- getCHIRPS("africa", "tifs", "monthly", cores = 3L, dsn = odr)
+# tfs <- extractChirps(fls, dsn = file.path(odr, "tfs"), cores = 3L)
 
 ## reimport extracted images
 tfs <- list.files(file.path(odr, "tfs"), full.names = TRUE, 
@@ -23,7 +28,7 @@ tfs <- list.files(file.path(odr, "tfs"), full.names = TRUE,
 rst <- stack(tfs)
 
 ## clip images in parallel
-ref <- spTransform(readRDS("inst/extdata/uniformExtent.rds"), 
+ref <- spTransform(readRDS(file.path(repo, "inst/extdata/uniformExtent.rds")), 
                    CRS = CRS(projection(rst)))
 
 cl <- makePSOCKcluster(detectCores() - 1L)
@@ -36,7 +41,6 @@ crp <- stack(parLapply(cl, unstack(rst), function(i) {
 prj <- trim(projectRaster(crp, crs = "+init=epsg:32637"), 
             filename = "/media/fdetsch/XChange/bale/chirps/crp/chirps-2.0_1981-2017_monthly.tif", 
             overwrite = TRUE)
-# crp <- writeRaster(crp, "../../data/bale/chirps/crp/chirps-2.0_jan81-mar17.tif")
 
 ## calculate annual sums from full years only (1981 to 2016)
 crp <- crp[[1:grep("2016.12", tfs)]]; tfs <- tfs[1:grep("2016.12", tfs)]
@@ -93,26 +97,6 @@ pushViewport(vp1)
 draw.colorkey(key = list(labels = list(cex = .8), col = clr(100), 
                          width = .6, height = .5, at = seq(790, 1210, 5), 
                          space = "right"), draw = TRUE)
-dev.off()
-
-
-### monthly anomalies in late 2015 -----
-
-y36 = prj[[1:grep("2016.12", tfs)]]
-dsn = remote::deseason(y36)
-
-library(RColorBrewer)
-clr = colorRampPalette(brewer.pal(4, "PuOr"))
-
-tiff("~/Downloads/move/rainfall-anomalies.tiff", width = 22, height = 16, 
-     units = "cm", res = 300, compression = "lzw")
-par(mfrow = c(2, 3))
-for (i in 7:12) {
-  lbl = paste0("2015.", formatC(i, width = 2, flag = "0"))
-  plot(dsn[[grep(lbl, tfs)]], main = lbl, zlim = c(-70, 70), col = clr(100))
-  lines(rasterToContour(dem_utm), col = "grey50")
-}
-
 dev.off()
 
 ## deregister parallel backend
