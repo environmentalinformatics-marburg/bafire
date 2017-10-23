@@ -1,30 +1,34 @@
 ### environment -----
 
+## working directory
+repo = getwd()
+setwd("/media/fdetsch/XChange/bale")
+
 ## packages and functions
 # devtools::install_github("environmentalinformatics-marburg/chirps")
-library(chirps)
+library(heavyRain)
 library(raster)
 library(Rsenal)
 library(RColorBrewer)
 library(grid)
 
-source("R/visDEM.R")
+source(file.path(repo, "R/visDEM.R"))
+source(file.path(repo, "R/panel.smoothconts.R"))
 
 
 ### process -----
 
-# fls <- downloadChirps("africa", "tifs", "monthly", cores = 3L,
-#                       dsn = "/media/permanent/data/bale/chirps")
-# tfs <- extractChirps(fls, dsn = "/media/permanent/data/bale/chirps/tfs",
-#                      cores = 3L)
+odr = "/media/fdetsch/XChange/bale/chirps/africa_monthly"
+# fls <- getCHIRPS("africa", "tifs", "monthly", cores = 3L, dsn = odr)
+# tfs <- extractChirps(fls, dsn = file.path(odr, "tfs"), cores = 3L)
 
 ## reimport extracted images
-tfs <- list.files("/media/permanent/data/bale/chirps/tfs", full.names = TRUE, 
+tfs <- list.files(file.path(odr, "tfs"), full.names = TRUE, 
                   pattern = "^chirps.*.tif$")
 rst <- stack(tfs)
 
 ## clip images in parallel
-ref <- spTransform(readRDS("inst/extdata/uniformExtent.rds"), 
+ref <- spTransform(readRDS(file.path(repo, "inst/extdata/uniformExtent.rds")), 
                    CRS = CRS(projection(rst)))
 
 cl <- makePSOCKcluster(detectCores() - 1L)
@@ -35,9 +39,8 @@ crp <- stack(parLapply(cl, unstack(rst), function(i) {
 }))
 
 prj <- trim(projectRaster(crp, crs = "+init=epsg:32637"), 
-            filename = "../../data/bale/chirps/crp/chirps-2.0_1981-2017_monthly.tif", 
+            filename = "/media/fdetsch/XChange/bale/chirps/crp/chirps-2.0_1981-2017_monthly.tif", 
             overwrite = TRUE)
-# crp <- writeRaster(crp, "../../data/bale/chirps/crp/chirps-2.0_jan81-mar17.tif")
 
 ## calculate annual sums from full years only (1981 to 2016)
 crp <- crp[[1:grep("2016.12", tfs)]]; tfs <- tfs[1:grep("2016.12", tfs)]
@@ -59,7 +62,7 @@ p_rgb <- spplot(ltm, sp.layout = Rsenal::rgb2spLayout(rgb, c(.02, .96)),
                 col.regions = "transparent", colorkey = FALSE)
 
 ## create contour lines
-dem <- raster("../../data/bale/dem/dem_srtm_01.tif")
+dem <- raster("/media/fdetsch/XChange/bale/dem/dem_srtm_01.tif")
 dem <- crop(dem, ltm, snap = "out")
 dem <- aggregate(dem, 4L)
 
